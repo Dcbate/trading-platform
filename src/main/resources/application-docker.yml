@@ -1,0 +1,7 @@
+# Activated via SPRING_PROFILES_ACTIVE=docker in docker/docker-compose.yml.
+# Actual host overrides (datasource, redis, kafka) are supplied as environment
+# variables in docker-compose.yml using Spring's relaxed env binding, so this
+# file only carries profile-specific behavior that isn't a simple property override.
+logging:
+  level:
+    com.dcbate.tradingplatform: INFO
