@@ -40,7 +40,9 @@ class OrderServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        KafkaTopicsProperties topics = new KafkaTopicsProperties("orders", "orders-validated", "trades", "prices", "risk-alerts");
+        KafkaTopicsProperties topics = new KafkaTopicsProperties(
+                "orders", "orders-validated", "trades", "prices", "risk-alerts",
+                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq");
         orderService = new OrderServiceImpl(orderRepository, kafkaEventPublisher, topics);
     }
 

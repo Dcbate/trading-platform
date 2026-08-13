@@ -63,6 +63,18 @@ public class KafkaConfig {
         return factory;
     }
 
+    /**
+     * Record-level (non-batch) factory for {@code @RetryableTopic} listeners — the notification
+     * retry/DLQ mechanism operates per-record, not per-batch.
+     */
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, String> retryableListenerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, String> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory());
+        return factory;
+    }
+
     @Bean
     public NewTopic ordersTopic(KafkaTopicsProperties topics) {
         return new NewTopic(topics.orders(), 10, (short) 1);
@@ -86,5 +98,35 @@ public class KafkaConfig {
     @Bean
     public NewTopic riskAlertsTopic(KafkaTopicsProperties topics) {
         return new NewTopic(topics.riskAlerts(), 5, (short) 1);
+    }
+
+    @Bean
+    public NewTopic paymentsTopic(KafkaTopicsProperties topics) {
+        return new NewTopic(topics.payments(), 20, (short) 1);
+    }
+
+    @Bean
+    public NewTopic paymentsValidatedTopic(KafkaTopicsProperties topics) {
+        return new NewTopic(topics.paymentsValidated(), 10, (short) 1);
+    }
+
+    @Bean
+    public NewTopic ledgerEntriesTopic(KafkaTopicsProperties topics) {
+        return new NewTopic(topics.ledgerEntries(), 10, (short) 1);
+    }
+
+    @Bean
+    public NewTopic settlementsTopic(KafkaTopicsProperties topics) {
+        return new NewTopic(topics.settlements(), 10, (short) 1);
+    }
+
+    @Bean
+    public NewTopic fraudAlertsTopic(KafkaTopicsProperties topics) {
+        return new NewTopic(topics.fraudAlerts(), 5, (short) 1);
+    }
+
+    @Bean
+    public NewTopic notificationsTopic(KafkaTopicsProperties topics) {
+        return new NewTopic(topics.notifications(), 5, (short) 1);
     }
 }

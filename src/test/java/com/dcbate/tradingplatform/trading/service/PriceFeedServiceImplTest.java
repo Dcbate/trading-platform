@@ -8,6 +8,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.dcbate.tradingplatform.ai.AnomalyDetector;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.config.TradingProperties;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
@@ -44,7 +45,9 @@ class PriceFeedServiceImplTest {
     @BeforeEach
     void setUp() {
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        KafkaTopicsProperties topics = new KafkaTopicsProperties("orders", "orders-validated", "trades", "prices", "risk-alerts");
+        KafkaTopicsProperties topics = new KafkaTopicsProperties(
+                "orders", "orders-validated", "trades", "prices", "risk-alerts",
+                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq");
         TradingProperties tradingProperties =
                 new TradingProperties(List.of("AAPL"), new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
         priceFeedService = new PriceFeedServiceImpl(

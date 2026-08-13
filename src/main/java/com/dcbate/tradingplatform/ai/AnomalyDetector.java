@@ -1,4 +1,4 @@
-package com.dcbate.tradingplatform.trading.service;
+package com.dcbate.tradingplatform.ai;
 
 public interface AnomalyDetector {
 

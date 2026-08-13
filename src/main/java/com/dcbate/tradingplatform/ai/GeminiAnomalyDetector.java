@@ -1,4 +1,4 @@
-package com.dcbate.tradingplatform.trading.service;
+package com.dcbate.tradingplatform.ai;
 
 import java.time.Duration;
 import java.util.List;
@@ -8,10 +8,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 /**
- * Enriches an already-triggered threshold rule (price spike, order velocity, ...) with a short
- * AI-generated severity assessment via the real Gemini API. Never gates the underlying trading
- * decision: if the key is a placeholder or the call fails for any reason, {@link #explain}
- * degrades to the plain rule description so order flow is unaffected.
+ * Enriches an already-triggered threshold rule (price spike, order velocity, fraud signal, ...)
+ * with a short AI-generated severity assessment via the real Gemini API. Never gates the
+ * underlying decision: if the key is a placeholder or the call fails for any reason,
+ * {@link #explain} degrades to the plain rule description so the calling flow is unaffected.
  */
 @Slf4j
 @Component
@@ -54,7 +54,7 @@ public class GeminiAnomalyDetector implements AnomalyDetector {
     }
 
     private GeminiResponse callGemini(AnomalyContext context) {
-        String prompt = "In one short sentence, assess the severity of this trading anomaly and why it "
+        String prompt = "In one short sentence, assess the severity of this anomaly and why it "
                 + "matters: " + context.description();
         var request = new GeminiRequest(List.of(new GeminiRequest.Content(List.of(new GeminiRequest.Part(prompt)))));
 

@@ -14,8 +14,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(OrderNotFoundException.class)
-    public ResponseEntity<ApiError> handleNotFound(OrderNotFoundException e, HttpServletRequest request) {
+    @ExceptionHandler({OrderNotFoundException.class, PaymentNotFoundException.class})
+    public ResponseEntity<ApiError> handleNotFound(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, List.of(e.getMessage()), request);
     }
 

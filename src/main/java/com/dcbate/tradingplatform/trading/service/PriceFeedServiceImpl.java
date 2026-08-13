@@ -1,5 +1,8 @@
 package com.dcbate.tradingplatform.trading.service;
 
+import com.dcbate.tradingplatform.ai.AnomalyContext;
+import com.dcbate.tradingplatform.ai.AnomalyDetector;
+import com.dcbate.tradingplatform.ai.AnomalyResult;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.config.TradingProperties;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;

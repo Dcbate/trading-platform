@@ -9,6 +9,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.dcbate.tradingplatform.ai.AnomalyContext;
+import com.dcbate.tradingplatform.ai.AnomalyDetector;
+import com.dcbate.tradingplatform.ai.AnomalyResult;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.config.RiskProperties;
 import com.dcbate.tradingplatform.domain.Order;
@@ -52,7 +55,9 @@ class RiskServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        KafkaTopicsProperties topics = new KafkaTopicsProperties("orders", "orders-validated", "trades", "prices", "risk-alerts");
+        KafkaTopicsProperties topics = new KafkaTopicsProperties(
+                "orders", "orders-validated", "trades", "prices", "risk-alerts",
+                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq");
         RiskProperties riskProperties = new RiskProperties(new BigDecimal("1000000"), 5, 60);
         riskService = new RiskServiceImpl(
                 orderRepository, riskAlertRepository, kafkaEventPublisher, topics, riskProperties, new OrderVelocityTracker(), anomalyDetector);

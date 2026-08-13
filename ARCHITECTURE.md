@@ -1,21 +1,25 @@
 # Architecture
 
-This document is the deep dive behind [README.md](README.md). It covers what's actually built in
-Phase 1 — the real-time trading system. The payment system (Phase 2) and deployment/observability
-stack (Phase 3) are described only as scope, not design, since they don't exist yet.
+This document is the deep dive behind [README.md](README.md). It covers what's actually built —
+the real-time trading system (Phase 1) and the payment & notification system (Phase 2).
+Deployment/observability infrastructure (Kubernetes, Helm, GCP, Jaeger, Grafana, Gatling) is
+Phase 3, described only as scope since it doesn't exist yet.
 
 ## 1. System architecture overview
 
-Five components communicate exclusively through Kafka, never by direct call. Each is
-independently deployable and independently recoverable: killing any one of them loses no data —
-the next consumer to catch up on its topic replays whatever it missed.
+Both systems are event-driven end to end: every component communicates exclusively through
+Kafka, never by direct call. Each is independently deployable and independently recoverable —
+killing any one of them loses no data, since the next consumer to catch up on its topic replays
+whatever it missed.
 
 ```
 Order API → [orders] → Risk Service → [orders-validated] → Matching Engine → [trades] → Execution Service
+
+Payment API → [payments] → Fraud Detection → [payments-validated] → Settlement (saga) → [notifications] → Notification Service
 ```
 
-`Price Feed Service` runs alongside this pipeline on its own schedule, publishing to `[prices]`
-and caching in Redis; it doesn't sit in the order's critical path.
+`Price Feed Service` and `Reconciliation Scheduler` run alongside these pipelines on their own
+schedules; neither sits in a request's critical path.
 
 ## 2. Trading system detail
 
@@ -60,11 +64,53 @@ The core design decision is **who owns what state, and who is allowed to write i
 See the [Design tradeoffs table in README.md](README.md#design-tradeoffs) — repeated here isn't
 useful; that table *is* the canonical list.
 
-## 3. Payment system (Phase 2 — not yet built)
+## 3. Payment system detail
 
-Ledger, Settlement (saga pattern), Fraud Detection, Notification (retry + DLQ), Reconciliation.
-Scope only, per the original spec's System 2 section — no design decisions have been made yet
-because no code exists yet.
+### Problem
+Payments can't be charged twice even with a retried request, can't disappear even if a service
+crashes mid-flight, and every failure needs a customer-visible reason — while fraud has to be
+caught without a real card/merchant/bank-tokenization system to check against.
+
+### Solution
+See [docs/PAYMENT_SYSTEM.md](docs/PAYMENT_SYSTEM.md) for the full lifecycle, saga walkthrough,
+and fraud/failure scenarios. The core design decisions:
+
+- `PaymentService` is idempotent on `idempotencyKey` (DB unique constraint) — the only writer of
+  a payment's initial `PENDING` state.
+- `FraudDetectionService` is the only writer of `BLOCKED`/`UNDER_REVIEW` — both terminal in Phase
+  2 (no compliance-officer approval endpoint yet).
+- `SettlementService` is a saga **orchestrator**, not choreographed via extra Kafka hops: reserve,
+  ledger, and bank-clear are direct calls inside one transaction, so the compensation logic on
+  failure lives in one reviewable place instead of being spread across consumers.
+- `LedgerService` is append-only. Compensation writes *reversing* rows; it never edits or deletes
+  a booked entry — the ledger's history is the audit trail.
+- `NotificationService` only ever persists a `Notification` row on success or as a terminal
+  dead-letter record — a failed attempt in between leaves no row, so Kafka's retry mechanism
+  never sees stale state to reconcile.
+
+### Data flow (happy path)
+1. `POST /v1/payments` → `PaymentServiceImpl.submitPayment()`: idempotency check, then persists
+   `Payment{status=PENDING}`, publishes `PaymentEvent` → `payments` (key=clientId, 20 partitions).
+2. `PaymentEventConsumer` → `FraudDetectionServiceImpl.evaluate()`: velocity, country-change, and
+   amount-vs-average rules (first match wins). Flagged → `BLOCKED`/`UNDER_REVIEW`, `FraudFlag`
+   persisted, `FraudAlertEvent` → `fraud-alerts`, a `NotificationEvent` → `notifications`. Clean →
+   `PaymentValidatedEvent` → `payments-validated`.
+3. `SettlementEventConsumer` → `SettlementServiceImpl.process()`: reserve (`Payment.status =
+   RESERVED`), `LedgerService.recordDoubleEntry()` (one DEBIT + one CREDIT, archived to
+   `ledger-entries`), then `BankClearingClient.clear()`. Success → `SETTLED`. Failure →
+   `LedgerService.reverseEntries()`, `Settlement.status = COMPENSATED`, `Payment.status = FAILED`.
+   Either way, a `NotificationEvent` → `notifications`.
+4. `NotificationEventConsumer` (`@RetryableTopic`) → `NotificationServiceImpl.deliver()`: Claude
+   summarization for non-success outcomes, delivery via the Email/Slack stand-ins, `Notification`
+   persisted only on success. Exhausted retries hit `@DltHandler` → `markDeadLettered()`.
+5. `ReconciliationScheduler` (cron, default 02:00 daily) → `ReconciliationServiceImpl.reconcile()`:
+   every `CLEARED` settlement's ledger entries must net to zero; real discrepancies persist a
+   `ReconciliationAlert` and notify.
+
+### Tradeoffs
+See the [Design tradeoffs table in README.md](README.md#design-tradeoffs) for the payment-specific
+entries (saga orchestration choice, simulated bank clearing, logging notification stand-ins,
+internal-only reconciliation) alongside the trading ones.
 
 ## 4. Low-latency patterns
 
@@ -108,42 +154,65 @@ mechanism differs from the spec's `Flux` sketch.
 Requires JVM `--add-opens`/`--add-exports` flags on JDK 17+ to reach internal APIs — wired into
 `pom.xml` (`chronicle.jvm.opens`, applied to Surefire, `spring-boot:run`, and `docker/Dockerfile`).
 
-## 5. Monitoring & observability (Phase 1 slice)
+## 5. Reliability pattern: retry + DLQ
+
+The spec's notification retry requirement (exponential backoff, dead-letter queue) is implemented
+with Spring Kafka's built-in `@RetryableTopic` on
+[NotificationEventConsumer](src/main/java/com/dcbate/tradingplatform/notification/event/NotificationEventConsumer.java),
+not a hand-rolled retry loop: `attempts = "6"` (the original try plus five retries),
+`@Backoff(delay = 1000, multiplier = 2.0, maxDelay = 16000)` produces exactly the spec's
+1s/2s/4s/8s/16s sequence, and `dltTopicSuffix = "-dlq"` matches the spec's `notifications-dlq`
+topic name instead of Spring's default `-dlt` suffix. A `@DltHandler` method persists the
+terminal failure as a `DEAD_LETTERED` `Notification` row for manual review.
+
+Because the Email/Slack stand-ins are logging-only, there's no real failure mode to trigger this
+automatically in practice — see the tradeoffs table. `NotificationServiceImpl.deliver()` lets any
+sender exception propagate uncaught specifically so this mechanism *can* act on a real failure
+once real providers are wired in (Phase 3); the unit tests prove that propagation, not the
+timing.
+
+## 6. Monitoring & observability
 
 Structured logging (`@Slf4j` everywhere), Spring Boot Actuator + Micrometer/Prometheus
 (`/actuator/prometheus`), a custom `MatchingEngineHealthIndicator` exposing live order-book depth,
 and a `price.anomalies` counter tagged by symbol. Jaeger tracing and Grafana dashboards are Phase 3.
 
-## 6. Testing strategy
+## 7. Testing strategy
 
-JUnit 5 + Mockito unit tests per service (dependencies mocked, one class per test file), plus a
-dedicated `OrderBookTest` exercising the matching algorithm directly with no framework involved.
-One Testcontainers `@SpringBootTest` (`OrderFlowIntegrationTest`) proves the entire pipeline
-against real Kafka, PostgreSQL, and Redis containers — not mocks. See
+JUnit 5 + Mockito unit tests per service (dependencies mocked, one class per test file), plus
+dedicated tests exercising pure logic directly with no framework involved (`OrderBookTest`,
+`PaymentVelocityTrackerTest`, `SimulatedBankClearingClientTest`). Two Testcontainers
+`@SpringBootTest`s (`OrderFlowIntegrationTest`, `PaymentFlowIntegrationTest`) prove the entire
+pipelines against real Kafka, PostgreSQL, and Redis containers — not mocks; the payment one
+covers both saga outcomes (settle and compensate) by submitting a normal and an
+over-threshold amount. See
 [README's coverage section](README.md#test-coverage--stated-honestly) for what's *not* covered
 and why.
 
-## 7. Security & compliance (Phase 1 slice)
+## 8. Security & compliance
 
 JWT resource-server auth (HS256), `@PreAuthorize` role checks (`TRADER`/`ADMIN`/`AUDITOR`/
-`COMPLIANCE_OFFICER`), no secrets committed (`JWT_SECRET`/`GEMINI_API_KEY` via env vars with
-local-only placeholders). GCP Secret Manager/KMS integration, full OAuth2 identity provider, and
-PCI/SOX audit tooling are Phase 3 — this repo's security posture is "correct primitives, not yet
-production-hardened."
+`COMPLIANCE_OFFICER`) on every endpoint including the payment API, no secrets committed
+(`JWT_SECRET`/`GEMINI_API_KEY`/`CLAUDE_API_KEY` via env vars with local-only placeholders). GCP
+Secret Manager/KMS integration, full OAuth2 identity provider, and PCI/SOX audit tooling are
+Phase 3 — this repo's security posture is "correct primitives, not yet production-hardened."
 
-## 8. Deployment & operations (Phase 1 slice)
+## 9. Deployment & operations
 
 Multi-stage `docker/Dockerfile` (Alpine, non-root user, healthcheck), `docker/docker-compose.yml`
 for local Postgres/Redis/Kafka/app, and a `.github/workflows/ci.yml` that runs `mvn verify` and
 builds the Docker image on every push. Kubernetes manifests, Helm charts, GCP deployment, and a
 production CI/CD promotion pipeline are Phase 3.
 
-## 9. Future improvements
+## 10. Future improvements
 
-- In-memory (or Redis-backed) fallback queue for order submission when Kafka is down, per the
-  original spec's error-handling table — not implemented in Phase 1; today a Kafka outage fails
-  order submission outright rather than degrading gracefully.
-- Distribute `OrderVelocityTracker` via Redis so risk velocity limits hold under multiple
-  Risk Service instances (today it's correct only for a single instance).
+- In-memory (or Redis-backed) fallback queue for order/payment submission when Kafka is down, per
+  the original spec's error-handling tables — not implemented; today a Kafka outage fails
+  submission outright rather than degrading gracefully.
+- Distribute `OrderVelocityTracker`/`PaymentVelocityTracker` via Redis so velocity limits hold
+  under multiple service instances (today correct only for a single instance each).
+- Real SendGrid/Slack/bank-gateway integrations, replacing the logging/simulated stand-ins.
+- A compliance-officer approval endpoint for `UNDER_REVIEW` payments, closing the loop the fraud
+  spec implies ("Blocks or requires OTP") but Phase 2 doesn't implement.
 - Benchmark thread affinity and Chronicle Queue against the spec's latency targets — targets
   are design intent until Gatling load tests exist (Phase 3).

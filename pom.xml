@@ -95,6 +95,11 @@
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
         </dependency>
+        <!-- Backs @RetryableTopic's backoff policy (Notification Service retry + DLQ) -->
+        <dependency>
+            <groupId>org.springframework.retry</groupId>
+            <artifactId>spring-retry</artifactId>
+        </dependency>
 
         <!-- Chronicle Queue (off-heap trade journal) -->
         <dependency>

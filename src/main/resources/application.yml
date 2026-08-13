@@ -95,6 +95,27 @@ trading:
     max-orders-per-window: 5
     window-seconds: 60
 
+payment:
+  fraud:
+    amount-multiplier-threshold: 3
+    max-payments-per-window: 5
+    window-seconds: 60
+    country-change-window-hours: 2
+  settlement:
+    # Stand-in for a real bank gateway (none exists for Phase 2): amounts above this
+    # deterministically fail clearing, so the compensation path is actually exercisable and
+    # tested rather than theoretical. Not a business rule.
+    simulated-bank-failure-threshold: 500000
+  reconciliation:
+    auto-resolve-threshold: 1.00
+    schedule-cron: "0 0 2 * * *"
+
+claude:
+  api-key: ${CLAUDE_API_KEY:placeholder-set-me}
+  api-url: https://api.anthropic.com
+  model: claude-3-5-haiku-20241022
+  timeout-ms: 2000
+
 kafka:
   topics:
     orders: orders
@@ -102,6 +123,13 @@ kafka:
     trades: trades
     prices: prices
     risk-alerts: risk-alerts
+    payments: payments
+    payments-validated: payments-validated
+    ledger-entries: ledger-entries
+    settlements: settlements
+    fraud-alerts: fraud-alerts
+    notifications: notifications
+    notifications-dlq: notifications-dlq
 
 logging:
   pattern:
