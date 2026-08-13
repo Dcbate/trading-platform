@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @ConfigurationPropertiesScan
 public class TradingPlatformApplication {
 
+    
     public static void main(String[] args) {
         SpringApplication.run(TradingPlatformApplication.class, args);
     }
