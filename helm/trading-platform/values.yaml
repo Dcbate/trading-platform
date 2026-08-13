@@ -1,0 +1,53 @@
+image:
+  repository: trading-platform
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 3
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 768Mi
+  limits:
+    cpu: "2"
+    memory: 1536Mi
+
+service:
+  port: 80
+
+ingress:
+  enabled: false
+  host: api.trading.example.com
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  springProfiles: "k8s"
+
+# Placeholders — real values are injected at deploy time (CI from GCP Secret Manager, or
+# `helm upgrade --set-string`) and must never be committed. See docs/DEPLOYMENT.md.
+secrets:
+  datasourceUsername: "placeholder-set-me"
+  datasourcePassword: "placeholder-set-me"
+  jwtSecret: "placeholder-set-me"
+  geminiApiKey: "placeholder-set-me"
+  claudeApiKey: "placeholder-set-me"
+  sendgridApiKey: "placeholder-set-me"
+  slackWebhookUrl: "placeholder-set-me"
+
+# Production/staging point these at managed services (Cloud SQL, Memorystore, a managed Kafka).
+externalDependencies:
+  datasourceUrl: "jdbc:postgresql://postgres:5432/trading"
+  redisHost: "redis"
+  kafkaBootstrapServers: "kafka:9092"
+
+devDependencies:
+  # Throwaway single-replica Postgres/Redis/Kafka, for local dev/testing (kind, minikube) only.
+  # Never enable outside dev — staging/prod use externalDependencies above instead.
+  enabled: false

@@ -9,7 +9,10 @@ import com.dcbate.tradingplatform.domain.FraudAction;
 import com.dcbate.tradingplatform.domain.FraudFlag;
 import com.dcbate.tradingplatform.domain.NotificationType;
 import com.dcbate.tradingplatform.domain.PaymentStatus;
+import com.dcbate.tradingplatform.domain.Payment;
 import com.dcbate.tradingplatform.domain.RiskLevel;
+import com.dcbate.tradingplatform.exception.InvalidPaymentStateException;
+import com.dcbate.tradingplatform.exception.PaymentNotFoundException;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.kafka.event.FraudAlertEvent;
 import com.dcbate.tradingplatform.kafka.event.NotificationEvent;
@@ -134,5 +137,44 @@ public class FraudDetectionServiceImpl implements FraudDetectionService {
                 topics.paymentsValidated(),
                 event.clientId(),
                 new PaymentValidatedEvent(event.paymentId(), event.clientId(), event.amount(), event.country(), event.createdAt()));
+    }
+
+    @Override
+    @Transactional
+    public void approve(UUID paymentId) {
+        Payment payment = requireUnderReview(paymentId);
+
+        kafkaEventPublisher.publish(
+                topics.paymentsValidated(),
+                payment.getClientId(),
+                new PaymentValidatedEvent(
+                        payment.getPaymentId(), payment.getClientId(), payment.getAmount(), payment.getCountry(), payment.getCreatedAt()));
+
+        log.info("Payment approved by compliance review: paymentId={}", paymentId);
+    }
+
+    @Override
+    @Transactional
+    public void reject(UUID paymentId) {
+        Payment payment = requireUnderReview(paymentId);
+        payment.setStatus(PaymentStatus.BLOCKED);
+        paymentRepository.save(payment);
+
+        kafkaEventPublisher.publish(
+                topics.notifications(),
+                payment.getClientId(),
+                new NotificationEvent(
+                        UUID.randomUUID(), payment.getPaymentId(), payment.getClientId(), NotificationType.FRAUD_ALERT,
+                        "Payment rejected by compliance review", Instant.now()));
+
+        log.warn("Payment rejected by compliance review: paymentId={}", paymentId);
+    }
+
+    private Payment requireUnderReview(UUID paymentId) {
+        Payment payment = paymentRepository.findById(paymentId).orElseThrow(() -> new PaymentNotFoundException(paymentId));
+        if (payment.getStatus() != PaymentStatus.UNDER_REVIEW) {
+            throw new InvalidPaymentStateException(paymentId, PaymentStatus.UNDER_REVIEW, payment.getStatus());
+        }
+        return payment;
     }
 }

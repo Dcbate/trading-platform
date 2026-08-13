@@ -1,0 +1,15 @@
+# Non-secret app configuration. Assumes managed Postgres/Redis/Kafka (Cloud SQL, Memorystore,
+# a managed Kafka service) reachable at these hosts — this raw manifest is the "production-shaped"
+# reference the original spec's file structure calls for. For local testing against an
+# all-in-one Postgres/Redis/Kafka stack, use the Helm chart's `values-dev.yaml` instead (see
+# helm/trading-platform/), which spins up throwaway single-replica versions of each.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trading-platform-config
+  namespace: trading-platform
+data:
+  SPRING_PROFILES_ACTIVE: "k8s"
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres.trading-platform.svc.cluster.local:5432/trading"
+  SPRING_DATA_REDIS_HOST: "redis.trading-platform.svc.cluster.local"
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka.trading-platform.svc.cluster.local:9092"

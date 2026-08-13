@@ -1,6 +1,8 @@
 package com.dcbate.tradingplatform.payment.api;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -9,9 +11,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.dcbate.tradingplatform.domain.PaymentStatus;
 import com.dcbate.tradingplatform.exception.GlobalExceptionHandler;
+import com.dcbate.tradingplatform.exception.InvalidPaymentStateException;
 import com.dcbate.tradingplatform.exception.PaymentNotFoundException;
 import com.dcbate.tradingplatform.payment.api.dto.PaymentRequest;
 import com.dcbate.tradingplatform.payment.api.dto.PaymentResponse;
+import com.dcbate.tradingplatform.payment.service.FraudDetectionService;
 import com.dcbate.tradingplatform.payment.service.PaymentService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
@@ -33,13 +37,16 @@ class PaymentControllerTest {
     @Mock
     private PaymentService paymentService;
 
+    @Mock
+    private FraudDetectionService fraudDetectionService;
+
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper().findAndRegisterModules();
-        mockMvc = MockMvcBuilders.standaloneSetup(new PaymentController(paymentService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new PaymentController(paymentService, fraudDetectionService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .build();
@@ -76,5 +83,32 @@ class PaymentControllerTest {
         when(paymentService.getPayment(paymentId)).thenThrow(new PaymentNotFoundException(paymentId));
 
         mockMvc.perform(get("/v1/payments/{id}", paymentId)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void approvePaymentReturnsNoContent() throws Exception {
+        UUID paymentId = UUID.randomUUID();
+
+        mockMvc.perform(post("/v1/payments/{id}/approve", paymentId)).andExpect(status().isNoContent());
+
+        verify(fraudDetectionService).approve(paymentId);
+    }
+
+    @Test
+    void rejectPaymentReturnsNoContent() throws Exception {
+        UUID paymentId = UUID.randomUUID();
+
+        mockMvc.perform(post("/v1/payments/{id}/reject", paymentId)).andExpect(status().isNoContent());
+
+        verify(fraudDetectionService).reject(paymentId);
+    }
+
+    @Test
+    void approvePaymentReturnsConflictWhenNotUnderReview() throws Exception {
+        UUID paymentId = UUID.randomUUID();
+        doThrow(new InvalidPaymentStateException(paymentId, PaymentStatus.UNDER_REVIEW, PaymentStatus.SETTLED))
+                .when(fraudDetectionService).approve(paymentId);
+
+        mockMvc.perform(post("/v1/payments/{id}/approve", paymentId)).andExpect(status().isConflict());
     }
 }

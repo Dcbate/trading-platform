@@ -1,0 +1,28 @@
+# Real hosts/credentials are supplied by CI (from GCP Secret Manager) at deploy time, never
+# committed here — the values below are illustrative placeholders. See docs/DEPLOYMENT.md.
+replicaCount: 3
+
+devDependencies:
+  enabled: false
+
+externalDependencies:
+  datasourceUrl: "jdbc:postgresql://<cloud-sql-private-ip>:5432/trading"
+  redisHost: "<memorystore-private-ip>"
+  kafkaBootstrapServers: "<managed-kafka-bootstrap>:9092"
+
+ingress:
+  enabled: true
+  host: api.trading.example.com
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 2Gi

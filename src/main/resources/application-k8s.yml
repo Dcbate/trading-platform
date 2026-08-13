@@ -1,0 +1,13 @@
+# Activated via SPRING_PROFILES_ACTIVE=k8s (see k8s/configmap.yaml and helm values). Spring Boot
+# auto-detects a Kubernetes environment and enables the liveness/readiness health groups anyway,
+# but this makes it explicit rather than relying on auto-detection.
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true

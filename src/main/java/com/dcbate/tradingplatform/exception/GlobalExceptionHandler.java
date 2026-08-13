@@ -19,8 +19,8 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, List.of(e.getMessage()), request);
     }
 
-    @ExceptionHandler(RiskLimitExceededException.class)
-    public ResponseEntity<ApiError> handleRiskLimit(RiskLimitExceededException e, HttpServletRequest request) {
+    @ExceptionHandler({RiskLimitExceededException.class, InvalidPaymentStateException.class})
+    public ResponseEntity<ApiError> handleConflict(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, List.of(e.getMessage()), request);
     }
 

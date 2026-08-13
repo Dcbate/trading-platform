@@ -1,6 +1,7 @@
 package com.dcbate.tradingplatform.payment.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -17,8 +18,11 @@ import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.FraudFlag;
 import com.dcbate.tradingplatform.domain.Payment;
 import com.dcbate.tradingplatform.domain.PaymentStatus;
+import com.dcbate.tradingplatform.exception.InvalidPaymentStateException;
+import com.dcbate.tradingplatform.exception.PaymentNotFoundException;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.kafka.event.FraudAlertEvent;
+import com.dcbate.tradingplatform.kafka.event.NotificationEvent;
 import com.dcbate.tradingplatform.kafka.event.PaymentEvent;
 import com.dcbate.tradingplatform.kafka.event.PaymentValidatedEvent;
 import com.dcbate.tradingplatform.payment.repository.FraudFlagRepository;
@@ -125,5 +129,51 @@ class FraudDetectionServiceImplTest {
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.UNDER_REVIEW);
         verify(kafkaEventPublisher).publish(eq("fraud-alerts"), eq("client-4"), any(FraudAlertEvent.class));
+    }
+
+    private Payment underReviewPayment() {
+        return Payment.builder()
+                .paymentId(UUID.randomUUID()).clientId("client-5").amount(new BigDecimal("500.00"))
+                .status(PaymentStatus.UNDER_REVIEW).idempotencyKey("key").country("US").createdAt(Instant.now())
+                .build();
+    }
+
+    @Test
+    void approveReleasesAnUnderReviewPaymentToSettlement() {
+        Payment payment = underReviewPayment();
+        when(paymentRepository.findById(payment.getPaymentId())).thenReturn(Optional.of(payment));
+
+        fraudDetectionService.approve(payment.getPaymentId());
+
+        verify(kafkaEventPublisher).publish(eq("payments-validated"), eq("client-5"), any(PaymentValidatedEvent.class));
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.UNDER_REVIEW);
+    }
+
+    @Test
+    void rejectBlocksAnUnderReviewPayment() {
+        Payment payment = underReviewPayment();
+        when(paymentRepository.findById(payment.getPaymentId())).thenReturn(Optional.of(payment));
+
+        fraudDetectionService.reject(payment.getPaymentId());
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.BLOCKED);
+        verify(kafkaEventPublisher).publish(eq("notifications"), eq("client-5"), any(NotificationEvent.class));
+    }
+
+    @Test
+    void approveRejectsAPaymentThatIsNotUnderReview() {
+        Payment payment = Payment.builder().paymentId(UUID.randomUUID()).status(PaymentStatus.SETTLED).build();
+        when(paymentRepository.findById(payment.getPaymentId())).thenReturn(Optional.of(payment));
+
+        assertThatThrownBy(() -> fraudDetectionService.approve(payment.getPaymentId()))
+                .isInstanceOf(InvalidPaymentStateException.class);
+    }
+
+    @Test
+    void approveThrowsWhenPaymentDoesNotExist() {
+        UUID paymentId = UUID.randomUUID();
+        when(paymentRepository.findById(paymentId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> fraudDetectionService.approve(paymentId)).isInstanceOf(PaymentNotFoundException.class);
     }
 }

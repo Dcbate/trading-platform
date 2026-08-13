@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "trading-platform.fullname" . }}-config
+data:
+  SPRING_PROFILES_ACTIVE: {{ .Values.env.springProfiles | quote }}
+  SPRING_DATASOURCE_URL: {{ .Values.externalDependencies.datasourceUrl | quote }}
+  SPRING_DATA_REDIS_HOST: {{ .Values.externalDependencies.redisHost | quote }}
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: {{ .Values.externalDependencies.kafkaBootstrapServers | quote }}

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-platform
+  namespace: trading-platform
+  labels:
+    app: trading-platform
+spec:
+  selector:
+    app: trading-platform
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP

@@ -130,6 +130,11 @@ kafka:
     fraud-alerts: fraud-alerts
     notifications: notifications
     notifications-dlq: notifications-dlq
+  fallback-queue:
+    # Single-instance, in-memory safety net for a transient Kafka outage — see
+    # KafkaEventPublisher's javadoc. Not a durable store.
+    capacity: 10000
+    drain-interval-ms: 5000
 
 logging:
   pattern:
