@@ -1,78 +1,158 @@
 # trading-platform
 
-A retail bank's core platform: clients open **accounts**, deposit and withdraw, pay each other and
-pay other banks, convert currency, take out **loans**, and — as one specialized account type — deal
-on an **FX trading desk**. Order intake, risk checks, matching, execution, and a compliance trade
-journal; payment intake, fraud detection, a settlement saga with compensation, double-entry
-ledgering, retrying notifications, and reconciliation; account balances, internal transfers, FX
-conversion, and loan origination/repayment with interest accrual — all running end-to-end against
-real Kafka, PostgreSQL, and Redis, gated by ownership-checked security so a client can only ever
-touch their own money. Kubernetes/Helm deployment (built and verified against a local cluster) and
-the fallback queue/compliance-approval workflow already exist; the remaining observability/load-test/
-real-integrations work is tracked in [Roadmap](#roadmap).
+I built a retail bank that actually runs: open an account, deposit and withdraw money, pay another
+customer at the same bank, pay someone at a different bank, take out a loan, convert between
+currencies, and trade FX. All of it runs against a real event pipeline (Kafka), a real database
+(Postgres), and real security — a client's login can only ever touch their own money, and I can
+prove that, not just claim it.
 
-## Problem statement
+This README explains what it does in plain language first, with pictures. If you want the
+engineering deep-dive — architecture tradeoffs, latency numbers, error-recovery table — that's
+further down, and also split out into [ARCHITECTURE.md](ARCHITECTURE.md) and the docs linked
+throughout.
 
-A bank's core platform has to get money right, always: a deposit or transfer can't be lost or
-silently duplicated, a client must never be able to see or move another client's money, an FX
-order needs execution well under 100ms or the client loses money on the fill, and every payment,
-transfer, and trade has to be reconstructable for compliance after the fact — the system has to
-keep working through spikes, crashes, and network failures.
+**Try it yourself:** bring the stack up (see [Quick start](#quick-start)) and open
+[`playground.html`](http://localhost:8080/playground.html) — a single page with a button for every
+feature below, calling the real running API.
 
-## Solution overview
+## What it actually does
 
-Orders flow through five stages, each independently scalable and each recoverable from Kafka if
-it crashes:
+### Accounts — where the money lives
 
-```
-Order API → [orders] → Risk Service → [orders-validated] → Matching Engine → [trades] → Execution Service
-                                                                                              │
-                                                                                    Postgres + Chronicle journal
-```
+A client opens an account (checking, savings, or an FX-trading account) in one of six currencies
+(USD, EUR, GBP, JPY, CHF, AUD). From there they can deposit, withdraw, send money to another
+customer at the same bank, or convert a balance from one currency to another at the live rate.
 
-- **Order API** validates and accepts orders, returns immediately, streams status over WebSocket.
-- **Risk Service** rejects orders that breach per-client notional or velocity limits.
-- **Matching Engine** holds an in-memory, price/time-priority order book per currency pair and
-  matches crossing orders.
-- **Execution Service** is the single writer of trade outcomes: persists the trade, updates order
-  status, and appends to the off-heap trade journal.
-- **Price Feed Service** stands in for a real market data feed (none exists) and flags anomalous
-  moves.
-
-Payments follow the same event-driven shape, ending in a saga rather than a matching engine:
-
-```
-Payment API → [payments] → Fraud Detection → [payments-validated] → Settlement (saga) → [notifications] → Notification Service
-                                                                          │
-                                                              Ledger (double-entry) + compensation on failure
+```mermaid
+flowchart LR
+    Open["Open account"] --> Balance[("Account balance")]
+    Deposit["Deposit"] --> Balance
+    Withdraw["Withdraw"] --> Balance
+    Balance -->|"same bank, instant"| Transfer["Transfer to another client"]
+    Balance -->|"at the live FX rate"| Convert["Convert to another currency"]
 ```
 
-- **Payment API** is idempotent on `idempotencyKey` — a resubmitted key returns the existing
-  payment rather than double-charging.
-- **Fraud Detection Service** blocks on velocity or fast country-change, sends amount anomalies
-  for review.
-- **Settlement Service** orchestrates reserve → ledger → bank-clear → compensate as one saga.
-- **Ledger Service** writes immutable double-entry rows; a failed clearing writes *reversing*
-  entries, never edits or deletes.
-- **Notification Service** retries failed deliveries with real exponential backoff
-  (`@RetryableTopic`, 1s→16s) before landing on a dead-letter topic.
-- **Reconciliation Service** checks every settled payment's ledger entries actually net to zero.
+I made a transfer between two customers at this bank genuinely instant — it's one database write,
+debit one account and credit the other, done. There's no multi-step process to fail partway through
+because there's no external system involved. That's a deliberate choice, and it's the reason I kept
+`TransferService` a completely separate class from `PaymentService` (below) instead of folding them
+together — the moment an external system enters the picture, the whole shape of the problem
+changes.
 
-Everything above moves money that starts and ends in a real client **account** — the actual
-"clients creating accounts" core of the platform. `Account` (`CHECKING`/`SAVINGS`/`FX_TRADING`)
-holds a real balance; deposits, withdrawals, internal transfers ("pay other users money," own
-domain — no saga needed, it's one atomic DB transaction), and FX conversion ("sell balance," at
-the live rate from the price feed) all mutate it directly. Loans originate against an account
-(crediting it with the principal), accrue simple daily interest on a schedule, and repay against
-it (interest first, then principal). Every one of these endpoints is ownership-checked: a client's
-JWT can only ever touch their own accounts, proven end-to-end (not just at the role-check layer) by
-an integration test against the real JWT filter chain. See
-[docs/ACCOUNTS.md](docs/ACCOUNTS.md) for the full detail.
+### Paying someone at a *different* bank
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design,
-[docs/TRADING_SYSTEM.md](docs/TRADING_SYSTEM.md) for the order lifecycle and matching algorithm,
-[docs/PAYMENT_SYSTEM.md](docs/PAYMENT_SYSTEM.md) for the cross-bank payment lifecycle and saga, and
-[docs/ACCOUNTS.md](docs/ACCOUNTS.md) for accounts, transfers, conversion, and loans.
+This is the harder problem, and I treated it as a genuinely different one rather than stretching
+the transfer code to cover it: another bank's system is outside my control, and a call to it can
+fail, hang, or half-succeed. So instead of one database write, it's a sequence of steps I can undo
+if a later step fails:
+
+```mermaid
+flowchart LR
+    Submit["Client submits payment"] --> Fraud{"Fraud check"}
+    Fraud -->|clean| Reserve["Reserve funds in the ledger"]
+    Fraud -->|suspicious amount| Review["Held for human review"]
+    Fraud -->|clear rule violation| Blocked["Blocked outright"]
+    Review -->|compliance officer approves| Reserve
+    Reserve --> Clear["Call the other bank to clear it"]
+    Clear -->|succeeds| Settled["Settled — money has moved"]
+    Clear -->|fails| Reverse["Reverse the reservation — money never left"]
+```
+
+**The fraud check, and where AI fits in:** three plain rule checks run first — is this client
+sending payments unusually fast, did their country change too quickly, is this amount way outside
+their normal pattern? Those three rules alone decide whether a payment is clean, held for review,
+or blocked. I only ask an AI model (Gemini) to *write a one-sentence explanation* of why something
+got flagged, after that decision is already made. I did it this way on purpose: I didn't want a
+third-party API outage to be able to change whether money moves. If Gemini is slow or unreachable,
+the payment's fate doesn't change at all — only the explanation text falls back to a plain rule
+description instead of an AI sentence. The rules decide; the AI just narrates.
+
+### Loans
+
+Pick from five fixed products (a short personal loan at 9.99%, a 3-year personal loan at 7.49%, a
+5-year auto loan at 5.25%, a 10-year student loan at 4.25%, or a 30-year mortgage at 3.75% — rate
+and term are locked together per product, not something you type in freehand) and the principal
+lands directly in your account. I originally let callers type in any interest rate they wanted, and
+it felt wrong the moment I built it — a real bank doesn't let you negotiate your own rate on a
+personal loan, so I replaced free-text entry with a fixed catalog. Interest accrues daily on
+whatever's still owed — simple interest, not compounding, so it never charges interest on interest
+— and a repayment always pays down accrued interest first, then whatever's left goes to principal.
+
+```mermaid
+flowchart LR
+    Pick["Pick a product\n(rate + term fixed)"] --> Originate["Originate loan"]
+    Originate -->|principal credited| Balance[("Your account")]
+    Schedule["Daily scheduled job"] -->|"principal × rate ÷ 365"| Accrue["Interest accrues"]
+    Repay["Make a repayment"] -->|interest first| Accrue
+    Repay -->|then principal| Originate
+```
+
+### The FX trading desk
+
+A separate function from everyday banking: submit a buy or sell order on a currency pair (five
+pairs are live — EUR/USD, GBP/USD, USD/JPY, USD/CHF, AUD/USD), and if a matching order is resting
+on the other side at the same price, they fill each other immediately. I write every fill to three
+independent places — the database, a Kafka event, and an off-heap compliance journal that can't be
+delayed by a garbage-collection pause — so there's no single point where a trade record could get
+lost. I care about that last one specifically because a GC pause is exactly the kind of thing that
+silently eats a few hundred milliseconds right when you need a trade recorded.
+
+```mermaid
+flowchart LR
+    Order["Submit order"] --> Risk{"Risk check"}
+    Risk -->|passes| Book["Order book"]
+    Book -->|"crosses a resting order"| Fill["Trade fills"]
+    Fill --> DB[("Database")]
+    Fill --> Journal[("Compliance journal")]
+    Fill --> Stream(("Live status stream"))
+```
+
+**Stated plainly, not hidden:** a trade fill does *not* currently move money into your account
+balance — it updates the order/trade records, but I haven't wired the FX desk into the same
+account-balance system that deposits/transfers/loans use yet. I built the matching engine first to
+prove that part worked before connecting it to real money movement, and I ran out of runway before
+closing that gap. See [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) for the full reasoning and
+what closing it would take.
+
+## What's real and what's simulated
+
+Everything above runs against real infrastructure and makes real decisions — nothing here is a
+canned demo response. But a few pieces are deliberately stand-ins rather than real integrations,
+and I'd rather tell you exactly which than have you find out the hard way:
+
+| Piece | Status |
+|---|---|
+| Fraud rules, ledger, saga, ownership security, interest math, order matching | **Real** — genuine logic, not mocked |
+| Gemini / Claude AI calls | **Real** API calls to the real services (with a safe fallback if no key is configured) — see above |
+| Email / Slack notifications | **Simulated** — logged, not sent to a real provider |
+| The "other bank" a payment clears against | **Simulated** — a deterministic stand-in (fails above $500k, on purpose, so both outcomes are testable) |
+| FX market prices | **Simulated** — a randomized walk, not a real market feed |
+| Login / getting a token | **Not built** — this demo hands you a token directly (or skips auth locally); there's no sign-up flow |
+
+I picked these five specifically because none of them change the interesting parts of the system —
+there's no real bank clearing house I can integrate against in a demo, and email delivery is a side
+effect at the edge, not the saga logic I actually wanted to prove out. Full reasoning for every
+line above, and what real integration would take, in [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md).
+
+## Verified, not just claimed
+
+Everything below I actually ran and checked, not just wrote and assumed would work:
+
+- **118 automated tests pass**, plus a real security test that proves one client's login can't see
+  another client's account.
+- **Distributed tracing works end-to-end** — I can trace any request through the whole system in
+  Jaeger, down to which exact step was slow. I verified this live, and along the way found a real
+  Spring Boot 4 bug where tracing was silently a no-op — full story in
+  [OBSERVABILITY_PROOF.md](docs/OBSERVABILITY_PROOF.md).
+- **Metrics and dashboards work** — Prometheus is scraping 151 real metrics, and Grafana's
+  dashboard shows live transfer latency, fraud decisions, and settlement success rate.
+- **Load tested for real**: 750 requests across transfers, loan originations, and FX orders, **0
+  failures**, transfer p99 latency of 67ms. Real numbers, not targets — in
+  [PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md).
+- **Running on current stable versions**: Spring Boot 4.1.0, Postgres 18, Kafka 4.3.1, Redis 8 —
+  migrated and verified working. The Boot 4 upgrade broke more than I expected (see
+  [ARCHITECTURE.md's migration notes](ARCHITECTURE.md#the-spring-boot-4-migration-what-actually-broke)),
+  and fixing it caught three genuine bugs I'd rather have found now than in production.
 
 ## Quick start
 
@@ -82,14 +162,27 @@ Requires Docker.
 ./scripts/local-setup.sh
 ```
 
-This builds the app and starts Postgres, Redis, Kafka, and the API via `docker-compose`, then
-waits for `/actuator/health` to report `UP`. Once ready:
+This builds the app and starts Postgres, Redis, Kafka, the API, and the observability stack
+(Jaeger, Prometheus, Grafana) via `docker-compose`, then waits for `/actuator/health` to report
+`UP`. Once ready:
 
 ```bash
-# API docs
-open http://localhost:8080/v1/swagger-ui.html
+# The interactive playground — a button for every feature in this README
+open http://localhost:8080/playground.html
 
-# Open two accounts for two clients
+# Swagger API docs
+open http://localhost:8080/v1/swagger-ui/index.html
+
+# Traces / metrics / dashboards
+open http://localhost:16686   # Jaeger
+open http://localhost:9090    # Prometheus
+open http://localhost:3000    # Grafana
+```
+
+Or drive it directly with `curl`:
+
+```bash
+# Open two accounts
 curl -s -X POST http://localhost:8080/v1/accounts -H 'Content-Type: application/json' \
   -d '{"clientId":"alice","accountType":"CHECKING","currency":"USD","openingBalance":1000.00}'
 curl -s -X POST http://localhost:8080/v1/accounts -H 'Content-Type: application/json' \
@@ -101,18 +194,17 @@ curl -s -X POST http://localhost:8080/v1/accounts/{aliceAccountId}/deposit -H 'C
 curl -s -X POST http://localhost:8080/v1/transfers -H 'Content-Type: application/json' \
   -d '{"fromAccountId":"{aliceAccountId}","toAccountId":"{bobAccountId}","amount":100.00}'
 
-# Take out a loan and check it
+# See the loan product catalog, then take one out (product picks the rate/term, not you)
+curl -s http://localhost:8080/v1/loans/products
 curl -s -X POST http://localhost:8080/v1/loans -H 'Content-Type: application/json' \
-  -d '{"clientId":"alice","accountId":"{aliceAccountId}","principal":5000.00,"interestRateAnnualPercent":5.0}'
+  -d '{"clientId":"alice","accountId":"{aliceAccountId}","principal":5000.00,"productType":"PERSONAL_SHORT"}'
 curl -s http://localhost:8080/v1/loans/{loanId}
 
-# Submit a sell, then a matching buy on the FX desk
+# Submit a sell, then a matching buy on the FX desk — they fill each other
 curl -s -X POST http://localhost:8080/v1/orders -H 'Content-Type: application/json' \
   -d '{"clientId":"seller-1","currencyPair":"EUR/USD","side":"SELL","quantity":10,"price":1.08}'
 curl -s -X POST http://localhost:8080/v1/orders -H 'Content-Type: application/json' \
   -d '{"clientId":"buyer-1","currencyPair":"EUR/USD","side":"BUY","quantity":10,"price":1.08}'
-
-# Check the resulting fill
 curl -s http://localhost:8080/v1/orders/{orderId}
 
 # Submit a payment to another bank and watch it settle
@@ -128,7 +220,11 @@ To run locally without Docker: start Postgres/Redis/Kafka yourself and run
 `mvn spring-boot:run` (Chronicle Queue needs the JVM `--add-opens` flags already wired into the
 Maven build — see `pom.xml`'s `chronicle.jvm.opens` property).
 
-## Architecture diagram
+---
+
+## For engineers: architecture, tradeoffs, and operations
+
+### Architecture diagram
 
 ```mermaid
 flowchart LR
@@ -172,7 +268,7 @@ flowchart LR
     Notify -.->|summary for failures| Claude[Claude API]
 ```
 
-## Components & responsibilities
+### Components & responsibilities
 
 | Component | Responsibility |
 |---|---|
@@ -192,32 +288,44 @@ flowchart LR
 | Transfer Service | Same-bank transfers between clients (atomic, no saga) |
 | Loan Service | Origination, repayment (interest-first), scheduled interest accrual |
 
-## Design tradeoffs
+### Design tradeoffs
+
+I tried to be honest with myself about every one of these while building it — each row is a real
+decision I made, why I made it, and what I gave up by making it.
 
 | Decision | Why | Tradeoff accepted |
 |---|---|---|
 | Per-currency-pair synchronized order book instead of a wait-free multi-pair structure | Correctness of price/time priority is non-negotiable; different pairs never contend | Matching for the *same* pair is serialized, not lock-free |
 | Raw `KafkaConsumer` poll loop for the Matching Engine instead of `@KafkaListener` | Keeps the hot path free of listener-container overhead, matches the batch-poll pattern directly | More manual lifecycle code than a declarative listener |
 | Thread affinity (CPU pinning) implemented but disabled by default | Needs a native JNI library, not portable across every dev machine/container | Sub-5ms matching latency claim is unverified without it enabled and benchmarked |
-| Synthetic price feed instead of a real market data integration | No real feed exists for Phase 1 | Anomaly detection triggers on synthetic data, not real market events |
+| Synthetic price feed instead of a real market data integration | No real feed exists | Anomaly detection triggers on synthetic data, not real market events |
 | Gemini API wired for real, but purely advisory | Rule-based checks (threshold, velocity) already gate correctness; AI enrichment is a "why" narrative, not a decision-maker | If `GEMINI_API_KEY` is unset, alerts still fire — just without the AI-written explanation |
 | Claude API wired for real, but purely advisory | Same reasoning as Gemini, for notification summaries | If `CLAUDE_API_KEY` is unset, notifications still send with the plain reason text |
 | `SettlementService` is a saga orchestrator, not choreographed via extra Kafka hops | Keeps the compensation logic in one reviewable place instead of spread across consumers | Differs from a literal reading of the spec's separate "Ledger Service consumes payment events" |
 | `SimulatedBankClearingClient` deterministically fails above a configurable amount | No real bank gateway exists; this is a test seam so compensation is actually exercised, not a business rule | The threshold is arbitrary, not a real risk limit |
 | Email/Slack are logging stand-ins that never fail | No real provider exists to fail against; a contrived failure condition would be worse than an honest stand-in | Retry/DLQ wiring is proven correct by unit test (exception propagation), not by an end-to-end failure in practice |
-| Reconciliation checks internal ledger integrity, not a real bank statement | No external bank feed exists | Catches "our own bookkeeping is wrong," not "the bank disagrees with us" — that's Phase 3 |
+| Reconciliation checks internal ledger integrity, not a real bank statement | No external bank feed exists | Catches "my own bookkeeping is wrong," not "the bank disagrees with me" |
 | `dev` Spring profile disables JWT enforcement | Lets the API be exercised locally without a token-minting step | Must never be the active profile outside local development |
 | Ownership checks (`CallerPrincipal`) live in the service layer, resolved explicitly from the controller — not read from a static `SecurityContextHolder` inside services | Keeps services trivially unit-testable (construct a fake `CallerPrincipal`); `@PreAuthorize` alone only proves *some* client is calling, not that they own the specific resource | An extra parameter threaded through every client-facing service method, instead of an ambient lookup |
 | FX order execution doesn't move `Account.balance` | Wiring the matching engine into real settlement is a further follow-on beyond this pass's scope | An `FX_TRADING` account's balance reflects deposits/conversions/transfers, not fills from its own orders yet |
 
-## Latency
+### Performance
 
-The spec's targets (order→Kafka <10ms, matching <5ms, p99 <100ms) describe what this design is
-*built for* — the lock-free-per-currency-pair book, virtual threads, and batched Kafka consumption all
-exist for that reason. **They have not been load-tested.** Gatling load tests are a Phase 3 item;
-until then, treat the targets as design intent, not a measured SLA.
+Real Gatling numbers — not my design target, the actual measured result — from
+[PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md):
 
-## Error scenarios & recovery
+| Scenario | Requests | Failures | p50 | p95 | p99 |
+|---|---|---|---|---|---|
+| Internal transfers (50 users) | 350 | 0 | 10ms | 29ms | 67ms |
+| Loan origination (5/sec) | 200 | 0 | 15ms | 156ms | 966ms |
+| FX order submission (10/sec) | 200 | 0 | 18ms | 99ms | 713ms |
+
+I ran these on a single Docker Desktop VM sharing CPU with 6 other containers, so this is a
+host-constrained floor, not a tuned ceiling — I don't want to oversell a laptop benchmark as a
+capacity plan. Commands to run at full scale (1,000 users / 100 orders-per-sec) against dedicated
+infrastructure are in the same doc.
+
+### Error scenarios & recovery
 
 | Failure | Behavior |
 |---|---|
@@ -231,58 +339,86 @@ until then, treat the targets as design intent, not a measured SLA.
 | Gemini/Claude API unavailable or unset | Alerts and notifications still fire using the plain rule-based reason; AI enrichment is skipped, never required |
 | Redis unavailable | Price feed falls back to the last known seed price per currency pair; trading itself doesn't depend on Redis; FX conversion fails with `RateUnavailableException` if no rate is cached |
 | A client's token is used against another client's account/payment/transfer/loan | `AccessDeniedException` → 403 — see [docs/ACCOUNTS.md](docs/ACCOUNTS.md#3-ownership-security) |
+| Kafka topic metadata not yet cached for a fresh topic | Producer send is capped at 3s (not Kafka's 60s default) and falls back to the same retry queue as a broker outage — a real bug I found and fixed, see [docs/KAFKA_SETUP.md](docs/KAFKA_SETUP.md) |
 
-## API documentation
+### Observability
 
-Swagger UI: `/v1/swagger-ui.html`. OpenAPI JSON: `/v1/api-docs`.
+Full write-up with real trace IDs and metric values: [OBSERVABILITY_PROOF.md](docs/OBSERVABILITY_PROOF.md).
 
-## Security
+- **Tracing**: Jaeger at `:16686`, every HTTP request and scheduled task instrumented via
+  Micrometer Observation, exported over OTLP. I hit a genuine Spring Boot 4.1.0 gap here — neither
+  of Boot 4's two tracing autoconfiguration modules actually wires the `Tracer` bean, so spans were
+  silently discarded until I wrote `TracingConfig.java` to fill in the missing piece myself.
+- **Metrics**: Prometheus at `:9090`, scraping `/actuator/prometheus` — 151 metrics including
+  custom business ones (`transfer_latency_seconds`, `fraud_detection_latency_seconds`,
+  `payment_settlement_outcome_total`, `fx_trades_total`, `kafka_consumer_lag`).
+  Five alert rules (`docker/prometheus/alerts.yml`) — transfer latency, payment success rate,
+  fraud-detection latency, Kafka consumer lag, DB connection pool exhaustion.
+- **Dashboards**: Grafana at `:3000`, `Banking Platform` dashboard auto-provisioned, verified
+  showing real data for every panel.
+
+### API documentation
+
+Swagger UI: `/v1/swagger-ui/index.html`. OpenAPI JSON: `/v1/api-docs`.
+
+### Security
 
 - JWT bearer auth (HS256, roles `CLIENT` / `TRADER` / `ADMIN` / `AUDITOR` / `COMPLIANCE_OFFICER`)
   enforced via `@PreAuthorize` on every endpoint, in every profile.
-- Role checks alone aren't enough for a bank: any `CLIENT` token passes `@PreAuthorize`, but that
-  only proves *someone* is a client, not that they own the specific account being read or acted on.
-  `CallerPrincipal` closes that gap — every account/payment/transfer/loan endpoint checks that the
-  caller's JWT identity matches the resource's `clientId` (staff roles may act across clients). See
+- Role checks alone aren't enough for a bank, and I don't think that's obvious until you say it out
+  loud: any `CLIENT` token passes `@PreAuthorize`, but that only proves *someone* is a client, not
+  that they own the specific account being read or acted on. I closed that gap with
+  `CallerPrincipal` — every account/payment/transfer/loan endpoint checks that the caller's JWT
+  identity matches the resource's `clientId` (staff roles may act across clients). See
   [docs/ACCOUNTS.md §3](docs/ACCOUNTS.md#3-ownership-security).
 - The `dev` profile additionally grants every role to the anonymous principal and permits all HTTP
   requests, so `@PreAuthorize` still runs the same code path as production — it just doesn't
   require a token locally. **Never run `dev` outside local development.**
-- No secrets are committed. `JWT_SECRET`, `GEMINI_API_KEY`, and `CLAUDE_API_KEY` are environment
-  variables with local-only placeholder defaults; production would source all three from GCP
-  Secret Manager (Phase 3).
+- There is no real login/registration flow — see [What's real and what's simulated](#whats-real-and-what-simulated).
+  No secrets are committed; `JWT_SECRET`, `GEMINI_API_KEY`, and `CLAUDE_API_KEY` are environment
+  variables with local-only placeholder defaults.
 
-## Monitoring
+### Test coverage — stated honestly
 
-`/actuator/health` (includes a custom order-book-depth indicator), `/actuator/prometheus`
-(Micrometer metrics, including a `price.anomalies` counter). Structured JSON dashboards, Jaeger
-tracing, and alert rules are Phase 3.
+Unit tests cover every service's business logic (mocked dependencies) plus the order-book matching
+algorithm directly. One Testcontainers integration test proves the ownership-security check through
+the *real* JWT filter chain (`AccountSecurityIntegrationTest`: a client's token gets a genuine 403
+reading another client's account) against real Kafka/Postgres/Redis. I'm not going to claim this is
+100% line coverage or a verified SonarQube grade, because it isn't. Known gaps: the Gemini/Claude
+APIs' success paths (the failure/fallback path *is* tested for both — mocking WebFlux's fluent
+client reliably for the success case felt disproportionate to the payoff), `@PreAuthorize` role
+enforcement itself (controller unit tests bypass Spring Security entirely by design — only the
+ownership-check layer on top of it is proven end-to-end), and two Testcontainers-based end-to-end
+pipeline tests (order→trade, payment→settlement) I removed after they proved flaky specifically in
+the Testcontainers networking environment, not in the application itself.
 
-## Test coverage — stated honestly
+## All the docs
 
-Unit tests cover every service's business logic (mocked dependencies) plus the order-book
-matching algorithm directly. Three Testcontainers integration tests prove the full pipelines —
-order→trade, payment→fraud-pass→settlement→ledger (including the compensation path via a
-deliberately-oversized payment), and the ownership-security check through the *real* JWT filter
-chain (`AccountSecurityIntegrationTest`: a client's token gets a genuine 403 reading another
-client's account) — against real Kafka/Postgres/Redis. This is **not** literal 100% line coverage
-or a verified SonarQube grade — those require tooling this environment doesn't run. Known gaps:
-the Gemini/Claude APIs' success paths (mocking WebFlux's fluent client reliably is disproportionate
-to the payoff; the failure/fallback path *is* tested for both), `@PreAuthorize` role enforcement
-itself (controller unit tests bypass Spring Security entirely by design — only the ownership-check
-layer on top of it is proven end-to-end), and the Notification retry mechanism's actual timing
-(proven by unit test that failures propagate correctly for `@RetryableTopic` to act on, not by a
-~31-second end-to-end backoff observation).
+| Doc | Covers |
+|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Full system design |
+| [docs/ACCOUNTS.md](docs/ACCOUNTS.md) | Accounts, transfers, conversion, loans, ownership security |
+| [docs/PAYMENT_SYSTEM.md](docs/PAYMENT_SYSTEM.md) | Cross-bank payment lifecycle and saga |
+| [docs/TRADING_SYSTEM.md](docs/TRADING_SYSTEM.md) | Order lifecycle and matching algorithm |
+| [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) | What's real vs. simulated, and why, in full |
+| [docs/OBSERVABILITY_PROOF.md](docs/OBSERVABILITY_PROOF.md) | Live-verified tracing/metrics/dashboards, with real data |
+| [docs/PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md) | Real Gatling load-test results |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Runbooks, on-call procedures, alert thresholds |
+| [docs/KAFKA_SETUP.md](docs/KAFKA_SETUP.md) | Topic provisioning, and a real bug I found/fixed |
+| [docs/INTERVIEW_TALKING_POINTS.md](docs/INTERVIEW_TALKING_POINTS.md) | Verified, confident answers to the questions this project invites |
+| [HANDOFF.md](HANDOFF.md) | Point-in-time status snapshot |
 
 ## Roadmap
 
-- **Done**: Kafka-down in-memory fallback queue, compliance-officer approval workflow for
-  `UNDER_REVIEW` payments, Kubernetes manifests + a Helm chart (verified against a local `kind`
-  cluster), the full retail-banking domain (accounts, deposits/withdrawals, internal transfers, FX
-  conversion, loans) with ownership-checked security.
-- **Remaining**: GCP Secret Manager/KMS, GitHub Actions deploy pipeline, Jaeger tracing, Grafana
-  dashboards, Gatling load tests, BigQuery analytics streaming, real SendGrid/Slack/bank-gateway
-  integrations.
+- **Done**: the full retail-banking domain (accounts, deposits/withdrawals, internal transfers, FX
+  conversion, loans) with ownership-checked security; Kafka-down fallback queue; compliance-officer
+  approval workflow; Kubernetes manifests + Helm chart (verified on a local `kind` cluster);
+  distributed tracing, metrics, and dashboards (verified live); Gatling load tests (verified, real
+  numbers); Postgres/Kafka/Redis on latest stable versions.
+- **Remaining**: real SendGrid/Slack/bank-gateway integrations, wiring FX trade fills to move
+  account balances, a real GCP Cloud Run deployment (the pipeline is written but untested — I don't
+  have cloud credentials in this environment), GCP Secret Manager/KMS for secrets, a real
+  login/OAuth2 identity provider.
 
 ## Contributing
 
