@@ -2,7 +2,15 @@ import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { apiErrorMessage } from '../api/client'
 import { useAuth } from '../hooks/useAuth'
-import { useAccounts, useConvert, useCurrencies, useDeposit, useOpenAccount, useWithdraw } from '../hooks/useAccounts'
+import {
+  useAccounts,
+  useCloseAccount,
+  useConvert,
+  useCurrencies,
+  useDeposit,
+  useOpenAccount,
+  useWithdraw,
+} from '../hooks/useAccounts'
 import { useAppStore } from '../store/appStore'
 import { TransactionTable, type Column } from '../components/TransactionTable'
 import { accountLabel, type AccountResponse, type AccountType } from '../types/api'
@@ -102,7 +110,7 @@ function OpenAccountForm({ clientId }: { clientId: string }) {
       <button
         type="submit"
         disabled={openAccount.isPending || !currency}
-        className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+        className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
       >
         {openAccount.isPending ? 'Opening…' : 'Open account'}
       </button>
@@ -110,10 +118,100 @@ function OpenAccountForm({ clientId }: { clientId: string }) {
   )
 }
 
-function AccountActions({ account }: { account: AccountResponse }) {
+const OTHER_DESTINATION = '__other__'
+
+function CloseAccountPanel({
+  account,
+  siblings,
+  onDone,
+}: {
+  account: AccountResponse
+  siblings: AccountResponse[]
+  onDone: () => void
+}) {
+  const closeAccount = useCloseAccount()
+  const hasBalance = account.balance > 0
+  const [ownDestination, setOwnDestination] = useState(siblings[0]?.accountId ?? OTHER_DESTINATION)
+  const [otherDestinationId, setOtherDestinationId] = useState('')
+
+  const destinationAccountId = ownDestination === OTHER_DESTINATION ? otherDestinationId.trim() : ownDestination
+  const canConfirm = !hasBalance || !!destinationAccountId
+
+  function handleConfirm() {
+    if (!canConfirm) return
+    closeAccount.mutate(
+      { accountId: account.accountId, destinationAccountId: hasBalance ? destinationAccountId : undefined },
+      {
+        onSuccess: () => {
+          toast.success('Account closed')
+          onDone()
+        },
+        onError: (error) => toast.error(apiErrorMessage(error)),
+      },
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs">
+      {hasBalance ? (
+        <>
+          <p className="text-slate-600">
+            This account has a balance of {account.balance.toFixed(2)} {account.currency} — where should it go?
+          </p>
+          {siblings.length > 0 ? (
+            <select
+              value={ownDestination}
+              onChange={(e) => setOwnDestination(e.target.value)}
+              className="rounded-md border border-slate-300 px-2 py-1"
+            >
+              {siblings.map((s) => (
+                <option key={s.accountId} value={s.accountId}>
+                  {accountLabel(s)}
+                </option>
+              ))}
+              <option value={OTHER_DESTINATION}>A different account (enter its id)…</option>
+            </select>
+          ) : (
+            <p className="text-slate-500">
+              You don't have another {account.currency} account — enter the outside account id to send it to:
+            </p>
+          )}
+          {(siblings.length === 0 || ownDestination === OTHER_DESTINATION) && (
+            <input
+              type="text"
+              value={otherDestinationId}
+              onChange={(e) => setOtherDestinationId(e.target.value)}
+              placeholder="destination account id"
+              className="rounded-md border border-slate-300 px-2 py-1"
+            />
+          )}
+        </>
+      ) : (
+        <p className="text-slate-600">Close this account? This can't be undone.</p>
+      )}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={handleConfirm}
+          disabled={closeAccount.isPending || !canConfirm}
+          className="rounded-md bg-red-700 px-2 py-1 text-white hover:bg-red-800 disabled:opacity-50"
+        >
+          {closeAccount.isPending ? 'Closing…' : 'Confirm close'}
+        </button>
+        <button type="button" onClick={onDone} className="rounded-md border border-slate-300 px-2 py-1 text-slate-600 hover:bg-slate-50">
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AccountActions({ account, allAccounts }: { account: AccountResponse; allAccounts: AccountResponse[] }) {
   const [amount, setAmount] = useState('')
+  const [closing, setClosing] = useState(false)
   const deposit = useDeposit()
   const withdraw = useWithdraw()
+  const closeAccount = useCloseAccount()
 
   function run(mutation: typeof deposit, verb: string) {
     const value = Number(amount)
@@ -128,6 +226,17 @@ function AccountActions({ account }: { account: AccountResponse }) {
         onError: (error) => toast.error(apiErrorMessage(error)),
       },
     )
+  }
+
+  if (account.status !== 'ACTIVE') {
+    return <span className="text-xs text-slate-400">{account.status}</span>
+  }
+
+  if (closing) {
+    const siblings = allAccounts.filter(
+      (a) => a.accountId !== account.accountId && a.status === 'ACTIVE' && a.currency === account.currency,
+    )
+    return <CloseAccountPanel account={account} siblings={siblings} onDone={() => setClosing(false)} />
   }
 
   return (
@@ -156,6 +265,14 @@ function AccountActions({ account }: { account: AccountResponse }) {
         className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
       >
         Withdraw
+      </button>
+      <button
+        type="button"
+        onClick={() => setClosing(true)}
+        disabled={closeAccount.isPending}
+        className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
+      >
+        Close
       </button>
     </div>
   )
@@ -234,7 +351,7 @@ function ConvertPanel({ accounts }: { accounts: AccountResponse[] }) {
       <button
         type="submit"
         disabled={convert.isPending || !toAccountId}
-        className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+        className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
       >
         {convert.isPending ? 'Converting…' : 'Convert balance'}
       </button>
@@ -246,6 +363,7 @@ export function AccountsPage() {
   const user = useAuth()
   const { data: accounts } = useAccounts(user?.clientId)
   const selectedAccountId = useAppStore((s) => s.selectedAccountId)
+  const activeAccounts = (accounts ?? []).filter((a) => a.status === 'ACTIVE')
 
   const columns: Column<AccountResponse>[] = [
     { header: 'Name', render: (a) => a.nickname ?? <span className="text-slate-400">—</span> },
@@ -254,7 +372,7 @@ export function AccountsPage() {
     { header: 'Id', render: (a) => <span className="font-mono text-xs text-slate-400">{a.accountId.slice(0, 8)}</span> },
     { header: 'Balance', render: (a) => a.balance.toFixed(2) },
     { header: 'Status', render: (a) => a.status },
-    { header: 'Actions', render: (a) => <AccountActions account={a} /> },
+    { header: 'Actions', render: (a) => <AccountActions account={a} allAccounts={accounts ?? []} /> },
   ]
 
   return (
@@ -273,10 +391,10 @@ export function AccountsPage() {
         emptyMessage="No accounts yet — open one above."
       />
 
-      {accounts && accounts.length >= 2 && (
+      {activeAccounts.length >= 2 && (
         <div>
           <h2 className="mb-2 text-sm font-medium text-slate-700">Convert (sell balance)</h2>
-          <ConvertPanel accounts={accounts} />
+          <ConvertPanel accounts={activeAccounts} />
         </div>
       )}
 

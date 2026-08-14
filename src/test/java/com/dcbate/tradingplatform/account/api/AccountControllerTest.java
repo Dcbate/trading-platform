@@ -10,12 +10,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
+import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.service.AccountService;
 import com.dcbate.tradingplatform.config.TradingProperties;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.domain.AccountType;
 import com.dcbate.tradingplatform.exception.AccountNotFoundException;
 import com.dcbate.tradingplatform.exception.GlobalExceptionHandler;
+import com.dcbate.tradingplatform.exception.InvalidAccountClosureException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -108,5 +110,44 @@ class AccountControllerTest {
 
         mockMvc.perform(get("/v1/accounts").param("clientId", "client-1").principal(clientAuth("client-1")))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void closeAccountWithNoBodyClosesAZeroBalanceAccount() throws Exception {
+        UUID accountId = UUID.randomUUID();
+        AccountResponse response = new AccountResponse(
+                accountId, "client-1", AccountType.CHECKING, "USD", null, BigDecimal.ZERO, AccountStatus.CLOSED, Instant.now());
+        when(accountService.closeAccount(eq(accountId), eq(CloseAccountRequest.EMPTY), any())).thenReturn(response);
+
+        mockMvc.perform(post("/v1/accounts/{id}/close", accountId).principal(clientAuth("client-1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CLOSED"));
+    }
+
+    @Test
+    void closeAccountWithBalanceAndNoDestinationReturnsConflict() throws Exception {
+        UUID accountId = UUID.randomUUID();
+        when(accountService.closeAccount(eq(accountId), eq(CloseAccountRequest.EMPTY), any()))
+                .thenThrow(new InvalidAccountClosureException("destination required"));
+
+        mockMvc.perform(post("/v1/accounts/{id}/close", accountId).principal(clientAuth("client-1")))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void closeAccountWithDestinationSweepsBalance() throws Exception {
+        UUID accountId = UUID.randomUUID();
+        UUID destinationId = UUID.randomUUID();
+        CloseAccountRequest request = new CloseAccountRequest(destinationId);
+        AccountResponse response = new AccountResponse(
+                accountId, "client-1", AccountType.CHECKING, "USD", null, BigDecimal.ZERO, AccountStatus.CLOSED, Instant.now());
+        when(accountService.closeAccount(eq(accountId), eq(request), any())).thenReturn(response);
+
+        mockMvc.perform(post("/v1/accounts/{id}/close", accountId)
+                        .principal(clientAuth("client-1"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.balance").value(0));
     }
 }

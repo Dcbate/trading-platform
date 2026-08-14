@@ -76,3 +76,19 @@ export function useConvert() {
     },
   })
 }
+
+// destinationAccountId is only required by the backend when the account being closed has a
+// positive balance — for a zero-balance account this can be omitted entirely.
+export function useCloseAccount() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ accountId, destinationAccountId }: { accountId: string; destinationAccountId?: string }) =>
+      apiClient
+        .post<AccountResponse>(`/v1/accounts/${accountId}/close`, { destinationAccountId: destinationAccountId ?? null })
+        .then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['account', data.accountId] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', data.clientId] })
+    },
+  })
+}

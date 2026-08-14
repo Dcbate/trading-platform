@@ -69,6 +69,11 @@ export interface LoanResponse {
   createdAt: string
 }
 
+export interface PriceResponse {
+  currencyPair: string
+  price: number
+}
+
 export interface ApiError {
   timestamp: string
   status: number

@@ -7,14 +7,18 @@ import static org.mockito.Mockito.when;
 
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
+import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.domain.AccountType;
+import com.dcbate.tradingplatform.exception.AccountNotActiveException;
 import com.dcbate.tradingplatform.exception.AccountNotFoundException;
+import com.dcbate.tradingplatform.exception.CurrencyMismatchException;
 import com.dcbate.tradingplatform.exception.InsufficientFundsException;
+import com.dcbate.tradingplatform.exception.InvalidAccountClosureException;
 import com.dcbate.tradingplatform.exception.RateUnavailableException;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
@@ -202,5 +206,82 @@ class AccountServiceImplTest {
 
         assertThatThrownBy(() -> accountService.convert(fromId, new ConvertRequest(toId, new BigDecimal("100.00")), owner))
                 .isInstanceOf(RateUnavailableException.class);
+    }
+
+    @Test
+    void closeAccountWithZeroBalanceNeedsNoDestination() {
+        UUID accountId = UUID.randomUUID();
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account(accountId, "client-1", "USD", BigDecimal.ZERO)));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AccountResponse response = accountService.closeAccount(accountId, CloseAccountRequest.EMPTY, owner);
+
+        assertThat(response.status()).isEqualTo(AccountStatus.CLOSED);
+        assertThat(response.balance()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void closeAccountWithBalanceSweepsToDestinationAndClosesSource() {
+        UUID accountId = UUID.randomUUID();
+        UUID destinationId = UUID.randomUUID();
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account(accountId, "client-1", "USD", new BigDecimal("250.00"))));
+        when(accountRepository.findById(destinationId)).thenReturn(Optional.of(account(destinationId, "client-2", "USD", new BigDecimal("10.00"))));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AccountResponse response = accountService.closeAccount(accountId, new CloseAccountRequest(destinationId), owner);
+
+        assertThat(response.status()).isEqualTo(AccountStatus.CLOSED);
+        assertThat(response.balance()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void closeAccountWithBalanceAndNoDestinationThrows() {
+        UUID accountId = UUID.randomUUID();
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account(accountId, "client-1", "USD", new BigDecimal("50.00"))));
+
+        assertThatThrownBy(() -> accountService.closeAccount(accountId, CloseAccountRequest.EMPTY, owner))
+                .isInstanceOf(InvalidAccountClosureException.class);
+    }
+
+    @Test
+    void closeAccountIntoItselfThrows() {
+        UUID accountId = UUID.randomUUID();
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account(accountId, "client-1", "USD", new BigDecimal("50.00"))));
+
+        assertThatThrownBy(() -> accountService.closeAccount(accountId, new CloseAccountRequest(accountId), owner))
+                .isInstanceOf(InvalidAccountClosureException.class);
+    }
+
+    @Test
+    void closeAccountRejectsCurrencyMismatchedDestination() {
+        UUID accountId = UUID.randomUUID();
+        UUID destinationId = UUID.randomUUID();
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account(accountId, "client-1", "USD", new BigDecimal("50.00"))));
+        when(accountRepository.findById(destinationId)).thenReturn(Optional.of(account(destinationId, "client-2", "EUR", BigDecimal.ZERO)));
+
+        assertThatThrownBy(() -> accountService.closeAccount(accountId, new CloseAccountRequest(destinationId), owner))
+                .isInstanceOf(CurrencyMismatchException.class);
+    }
+
+    @Test
+    void closeAccountRejectsAnInactiveDestination() {
+        UUID accountId = UUID.randomUUID();
+        UUID destinationId = UUID.randomUUID();
+        Account frozenDestination = account(destinationId, "client-2", "USD", BigDecimal.ZERO);
+        frozenDestination.setStatus(AccountStatus.FROZEN);
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account(accountId, "client-1", "USD", new BigDecimal("50.00"))));
+        when(accountRepository.findById(destinationId)).thenReturn(Optional.of(frozenDestination));
+
+        assertThatThrownBy(() -> accountService.closeAccount(accountId, new CloseAccountRequest(destinationId), owner))
+                .isInstanceOf(AccountNotActiveException.class);
+    }
+
+    @Test
+    void closeAccountDeniedForNonOwner() {
+        UUID accountId = UUID.randomUUID();
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account(accountId, "client-1", "USD", BigDecimal.ZERO)));
+
+        assertThatThrownBy(() -> accountService.closeAccount(accountId, CloseAccountRequest.EMPTY, otherClient))
+                .isInstanceOf(AccessDeniedException.class);
     }
 }

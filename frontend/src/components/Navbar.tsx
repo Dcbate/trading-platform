@@ -6,6 +6,7 @@ const links = [
   { to: '/accounts', label: 'Accounts' },
   { to: '/transfer', label: 'Transfer' },
   { to: '/loans', label: 'Loans' },
+  { to: '/fx', label: 'FX Markets' },
   { to: '/settings', label: 'Settings' },
 ]
 
@@ -14,10 +15,18 @@ export function Navbar() {
   const logout = useLogout()
 
   return (
-    <nav className="border-b border-slate-200 bg-white">
+    <nav className="sticky top-0 z-10 border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         <div className="flex items-center gap-6">
-          <span className="text-lg font-semibold text-slate-900">trading-platform</span>
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-600 font-serif text-lg font-bold text-white">
+              B
+            </span>
+            <div className="leading-tight">
+              <p className="text-sm font-bold text-slate-900">BATE BANKING</p>
+              <p className="text-[11px] text-slate-500">Banking by Bate</p>
+            </div>
+          </div>
           <div className="flex gap-4">
             {links.map((link) => (
               <NavLink
@@ -25,7 +34,7 @@ export function Navbar() {
                 to={link.to}
                 end={link.to === '/'}
                 className={({ isActive }) =>
-                  `text-sm font-medium ${isActive ? 'text-slate-900' : 'text-slate-500 hover:text-slate-800'}`
+                  `text-sm font-medium ${isActive ? 'border-b-2 border-primary-600 text-primary-700' : 'text-slate-500 hover:text-primary-600'}`
                 }
               >
                 {link.label}

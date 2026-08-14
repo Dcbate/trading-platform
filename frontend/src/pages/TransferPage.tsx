@@ -7,6 +7,7 @@ import type { TransferResponse } from '../types/api'
 export function TransferPage() {
   const user = useAuth()
   const { data: accounts } = useAccounts(user?.clientId)
+  const activeAccounts = (accounts ?? []).filter((a) => a.status === 'ACTIVE')
   const [lastTransfer, setLastTransfer] = useState<TransferResponse | null>(null)
 
   return (
@@ -19,10 +20,10 @@ export function TransferPage() {
         </p>
       </div>
 
-      {accounts && accounts.length > 0 ? (
-        <TransferForm accounts={accounts} onTransferred={setLastTransfer} />
+      {activeAccounts.length > 0 ? (
+        <TransferForm accounts={activeAccounts} onTransferred={setLastTransfer} />
       ) : (
-        <p className="text-sm text-slate-500">You need an account before you can send a transfer.</p>
+        <p className="text-sm text-slate-500">You need an active account before you can send a transfer.</p>
       )}
 
       {lastTransfer && (

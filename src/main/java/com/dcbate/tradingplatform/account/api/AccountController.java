@@ -3,6 +3,7 @@ package com.dcbate.tradingplatform.account.api;
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
 import com.dcbate.tradingplatform.account.api.dto.AccountTransactionRequest;
+import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.account.service.AccountService;
 import com.dcbate.tradingplatform.config.TradingProperties;
@@ -96,5 +97,16 @@ public class AccountController {
     public ResponseEntity<AccountResponse> convert(
             @PathVariable UUID accountId, @Valid @RequestBody ConvertRequest request, Authentication authentication) {
         return ResponseEntity.ok(accountService.convert(accountId, request, CallerPrincipal.from(authentication)));
+    }
+
+    @PostMapping("/{accountId}/close")
+    @PreAuthorize("hasAnyRole('CLIENT', 'ADMIN')")
+    @Operation(summary = "Close an account — a positive balance must be swept to a destination account first")
+    public ResponseEntity<AccountResponse> closeAccount(
+            @PathVariable UUID accountId,
+            @RequestBody(required = false) CloseAccountRequest request,
+            Authentication authentication) {
+        CloseAccountRequest body = request == null ? CloseAccountRequest.EMPTY : request;
+        return ResponseEntity.ok(accountService.closeAccount(accountId, body, CallerPrincipal.from(authentication)));
     }
 }

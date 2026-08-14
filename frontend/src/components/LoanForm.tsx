@@ -105,7 +105,7 @@ export function LoanForm({
       <button
         type="submit"
         disabled={originateLoan.isPending || !accountId || !productType}
-        className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+        className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
       >
         {originateLoan.isPending ? 'Submitting…' : 'Originate loan'}
       </button>

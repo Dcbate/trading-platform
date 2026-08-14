@@ -40,6 +40,15 @@ export function SignupPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-6 flex items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary-600 font-serif text-xl font-bold text-white">
+            B
+          </span>
+          <div className="leading-tight">
+            <p className="text-sm font-bold text-slate-900">BATE BANKING</p>
+            <p className="text-[11px] text-slate-500">Banking by Bate</p>
+          </div>
+        </div>
         <h1 className="mb-1 text-xl font-semibold text-slate-900">Create an account</h1>
         <p className="mb-6 text-sm text-slate-500">Opens a $0 USD checking account automatically.</p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -77,14 +86,14 @@ export function SignupPage() {
           <button
             type="submit"
             disabled={signup.isPending}
-            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+            className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
           >
             {signup.isPending ? 'Creating account…' : 'Sign up'}
           </button>
         </form>
         <p className="mt-4 text-center text-sm text-slate-500">
           Already have an account?{' '}
-          <Link to="/login" className="font-medium text-slate-900 underline">
+          <Link to="/login" className="font-medium text-primary-700 underline">
             Log in
           </Link>
         </p>

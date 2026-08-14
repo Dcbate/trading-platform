@@ -53,6 +53,7 @@ function RepayCell({ loan }: { loan: LoanResponse }) {
 export function LoansPage() {
   const user = useAuth()
   const { data: accounts } = useAccounts(user?.clientId)
+  const activeAccounts = (accounts ?? []).filter((a) => a.status === 'ACTIVE')
   const { data: loans } = useLoans(user?.clientId)
 
   const columns: Column<LoanResponse>[] = [
@@ -75,10 +76,10 @@ export function LoansPage() {
         </p>
       </div>
 
-      {accounts && accounts.length > 0 ? (
-        <LoanForm accounts={accounts} />
+      {activeAccounts.length > 0 ? (
+        <LoanForm accounts={activeAccounts} />
       ) : (
-        <p className="text-sm text-slate-500">You need an account before you can originate a loan.</p>
+        <p className="text-sm text-slate-500">You need an active account before you can originate a loan.</p>
       )}
 
       <TransactionTable

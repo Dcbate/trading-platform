@@ -2,6 +2,7 @@ package com.dcbate.tradingplatform.account.service;
 
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
+import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
@@ -10,7 +11,9 @@ import com.dcbate.tradingplatform.domain.AccountActivityType;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.exception.AccountNotActiveException;
 import com.dcbate.tradingplatform.exception.AccountNotFoundException;
+import com.dcbate.tradingplatform.exception.CurrencyMismatchException;
 import com.dcbate.tradingplatform.exception.InsufficientFundsException;
+import com.dcbate.tradingplatform.exception.InvalidAccountClosureException;
 import com.dcbate.tradingplatform.exception.RateUnavailableException;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.kafka.event.AccountActivityEvent;
@@ -127,6 +130,47 @@ public class AccountServiceImpl implements AccountService {
         log.info("Conversion: fromAccountId={}, toAccountId={}, amount={}, rate={}, converted={}",
                 fromAccountId, request.toAccountId(), amount, rate, converted);
         return AccountResponse.from(savedTo);
+    }
+
+    @Override
+    @Transactional
+    public AccountResponse closeAccount(UUID accountId, CloseAccountRequest request, CallerPrincipal caller) {
+        Account account = requireActiveOwnedAccount(accountId, caller);
+        UUID destinationAccountId = request.destinationAccountId();
+
+        if (account.getBalance().compareTo(BigDecimal.ZERO) > 0) {
+            if (destinationAccountId == null) {
+                throw new InvalidAccountClosureException(
+                        "Account %s has a balance of %s — a destination account is required to close it"
+                                .formatted(accountId, account.getBalance()));
+            }
+            if (destinationAccountId.equals(accountId)) {
+                throw new InvalidAccountClosureException("Destination account must be different from the account being closed");
+            }
+
+            Account destination = requireAccount(destinationAccountId);
+            if (destination.getStatus() != AccountStatus.ACTIVE) {
+                throw new AccountNotActiveException(destinationAccountId);
+            }
+            if (!account.getCurrency().equals(destination.getCurrency())) {
+                throw new CurrencyMismatchException(account.getCurrency(), destination.getCurrency());
+            }
+
+            BigDecimal balance = account.getBalance();
+            destination.setBalance(destination.getBalance().add(balance));
+            accountRepository.save(destination);
+            account.setBalance(BigDecimal.ZERO);
+
+            publishActivity(account, AccountActivityType.CLOSURE, balance, destinationAccountId, null);
+            log.info("Account closed with balance swept: accountId={}, clientId={}, destinationAccountId={}, amount={}",
+                    accountId, account.getClientId(), destinationAccountId, balance);
+        } else {
+            log.info("Account closed: accountId={}, clientId={}", accountId, account.getClientId());
+        }
+
+        account.setStatus(AccountStatus.CLOSED);
+        Account saved = accountRepository.save(account);
+        return AccountResponse.from(saved);
     }
 
     /** Looks up the direct pair first, then the inverse (1/rate) before giving up. */

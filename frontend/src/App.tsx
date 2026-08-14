@@ -8,6 +8,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { AccountsPage } from './pages/AccountsPage'
 import { TransferPage } from './pages/TransferPage'
 import { LoansPage } from './pages/LoansPage'
+import { FXMarketsPage } from './pages/FXMarketsPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 const queryClient = new QueryClient({
@@ -32,6 +33,7 @@ function App() {
             <Route path="/accounts" element={<AccountsPage />} />
             <Route path="/transfer" element={<TransferPage />} />
             <Route path="/loans" element={<LoansPage />} />
+            <Route path="/fx" element={<FXMarketsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
