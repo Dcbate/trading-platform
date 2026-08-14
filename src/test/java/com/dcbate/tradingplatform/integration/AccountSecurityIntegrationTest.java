@@ -96,7 +96,7 @@ class AccountSecurityIntegrationTest {
         String clientAToken = jwtFor("client-A", "CLIENT");
         String clientBToken = jwtFor("client-B", "CLIENT");
 
-        AccountRequest openRequest = new AccountRequest("client-A", AccountType.CHECKING, "USD", new BigDecimal("500.00"));
+        AccountRequest openRequest = new AccountRequest("client-A", AccountType.CHECKING, "USD", null, new BigDecimal("500.00"));
         AccountResponse opened = client.post().uri("/v1/accounts")
                 .header("Authorization", "Bearer " + clientAToken)
                 .contentType(MediaType.APPLICATION_JSON)

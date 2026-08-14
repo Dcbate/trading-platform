@@ -49,6 +49,7 @@ public class AccountServiceImpl implements AccountService {
                 .clientId(request.clientId())
                 .accountType(request.accountType())
                 .currency(request.currency())
+                .nickname(request.nickname())
                 .balance(request.openingBalance())
                 .status(AccountStatus.ACTIVE)
                 .createdAt(Instant.now())

@@ -4,5 +4,6 @@ package com.dcbate.tradingplatform.domain;
 public enum AccountActivityType {
     DEPOSIT,
     WITHDRAWAL,
-    CONVERSION
+    CONVERSION,
+    CLOSURE
 }

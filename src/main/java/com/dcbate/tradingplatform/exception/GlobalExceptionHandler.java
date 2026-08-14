@@ -23,7 +23,8 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({InvalidPaymentStateException.class, InsufficientFundsException.class, AccountNotActiveException.class,
-            CurrencyMismatchException.class, RateUnavailableException.class, LoanNotActiveException.class})
+            CurrencyMismatchException.class, RateUnavailableException.class, LoanNotActiveException.class,
+            EmailAlreadyRegisteredException.class})
     public ResponseEntity<ApiError> handleConflict(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, List.of(e.getMessage()), request);
     }
@@ -31,6 +32,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException e, HttpServletRequest request) {
         return build(HttpStatus.FORBIDDEN, List.of("Access denied"), request);
+    }
+
+    @ExceptionHandler({InvalidCredentialsException.class, InvalidRefreshTokenException.class})
+    public ResponseEntity<ApiError> handleUnauthorized(RuntimeException e, HttpServletRequest request) {
+        return build(HttpStatus.UNAUTHORIZED, List.of(e.getMessage()), request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

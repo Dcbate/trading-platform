@@ -69,9 +69,9 @@ class AccountControllerTest {
 
     @Test
     void openAccountReturnsCreated() throws Exception {
-        AccountRequest request = new AccountRequest("client-1", AccountType.CHECKING, "USD", new BigDecimal("100.00"));
+        AccountRequest request = new AccountRequest("client-1", AccountType.CHECKING, "USD", null, new BigDecimal("100.00"));
         AccountResponse response = new AccountResponse(
-                UUID.randomUUID(), "client-1", AccountType.CHECKING, "USD", new BigDecimal("100.00"), AccountStatus.ACTIVE, Instant.now());
+                UUID.randomUUID(), "client-1", AccountType.CHECKING, "USD", null, new BigDecimal("100.00"), AccountStatus.ACTIVE, Instant.now());
         when(accountService.openAccount(any(), any())).thenReturn(response);
 
         mockMvc.perform(post("/v1/accounts")

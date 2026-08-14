@@ -123,8 +123,9 @@ I'd answer this directly, not defensively. Email and Slack notifications are log
 real provider — a SendGrid/Slack integration is roughly an hour of work behind the same interface I
 already built. The bank clearing gateway is a deterministic amount-threshold simulation, not a real
 correspondent-bank connection. The FX price feed is a bounded random walk, not real market data.
-There's no real login/registration flow — JWTs are hand-issued in tests or bypassed entirely via a
-`dev` profile. One gap I'd flag as a genuine scope cut rather than a defensible design choice: FX
+Login/signup are real now — real users, bcrypt-hashed passwords, real JWTs — but it's a hand-rolled
+issuer rather than a managed identity provider, so no MFA, password reset, or email verification.
+One gap I'd flag as a genuine scope cut rather than a defensible design choice: FX
 trade fills don't currently move account balances at all — `ExecutionServiceImpl` has no reference
 to `AccountService`, and I ran out of runway before wiring that up. Full reasoning for each, and
 what productionizing would take, in `DESIGN_DECISIONS.md`.

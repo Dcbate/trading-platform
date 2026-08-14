@@ -13,6 +13,7 @@ public record AccountResponse(
         String clientId,
         AccountType accountType,
         String currency,
+        String nickname,
         BigDecimal balance,
         AccountStatus status,
         Instant createdAt) {
@@ -23,6 +24,7 @@ public record AccountResponse(
                 account.getClientId(),
                 account.getAccountType(),
                 account.getCurrency(),
+                account.getNickname(),
                 account.getBalance(),
                 account.getStatus(),
                 account.getCreatedAt());

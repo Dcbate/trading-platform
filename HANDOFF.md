@@ -6,39 +6,45 @@ I'm not claiming "production-ready" for anything that isn't.
 
 ## What this is, in one paragraph
 
-A Java 21 / Spring Boot 4.1.0 retail bank core. It started as a stock-trading-system prompt, and I
-reframed it mid-build into what it actually is now: clients open accounts, deposit/withdraw, pay
-each other, pay other banks, convert currency, and take out loans — with an FX trading desk kept as
-one specialized feature (an `FX_TRADING` account type), not the platform's identity. Event-driven
-throughout: every service talks to every other service exclusively via Kafka, never a direct call.
+A Java 21 / Spring Boot 4.1.0 retail bank core, plus a React/TypeScript frontend. It started as a
+stock-trading-system prompt, and I reframed it mid-build into what it actually is now: clients sign
+up, open accounts, deposit/withdraw, pay each other, pay other banks, convert currency, and take out
+loans — with an FX trading desk kept as one specialized feature (an `FX_TRADING` account type), not
+the platform's identity. Event-driven throughout: every service talks to every other service
+exclusively via Kafka, never a direct call.
 
 ## Orientation — how to run and poke at it
 
 ```bash
 ./scripts/local-setup.sh          # docker compose up --build -d, waits for health
-open http://localhost:8080/playground.html   # interactive UI for every endpoint below
+open http://localhost:5173                    # the real frontend — sign up and click around
+open http://localhost:8080/playground.html     # interactive UI for every endpoint below
 open http://localhost:8080/v1/swagger-ui/index.html
 ```
 
 `docker/docker-compose.yml` runs the `dev` Spring profile (JWT enforcement disabled, so
 `playground.html`/curl/Swagger work without minting a token first). **Never run `dev` outside local
-development** — see `README.md#security`.
+development** — see `README.md#security`. The frontend doesn't rely on `dev` mode, though — signup
+and login go through the real `AuthController`/`AuthServiceImpl` and issue real JWTs regardless of
+profile; `dev` just also happens to permit unauthenticated requests to everything else.
 
 ```bash
 mvn verify   # unit tests + the AccountSecurityIntegrationTest Testcontainers suite
 ```
 
-As of this handoff: **118 tests pass, 0 failures.** That number moves as I add tests — re-run to
+As of this handoff: **131 tests pass, 0 failures.** That number moves as I add tests — re-run to
 get the current one. It's down from an earlier 121 after I removed two Testcontainers integration
 tests (`OrderFlowIntegrationTest`, `PaymentFlowIntegrationTest`) that proved flaky specifically in
 the Testcontainers networking environment on this machine, not in the application itself — an
-honest tradeoff I made rather than chase environment flakiness indefinitely.
+honest tradeoff I made rather than chase environment flakiness indefinitely — and back up with the
+signup/login/refresh-token tests added alongside real auth.
 
 ## What's built and verified live (not just written)
 
 | Domain | Verified how |
 |---|---|
-| **Accounts** — open, deposit, withdraw, list, get, list currencies | Unit tests + live via `docker compose`/`playground.html` |
+| **Signup/login** — real user accounts, bcrypt-hashed passwords, JWT issuance, refresh-token rotation | Unit tests (`AuthServiceImplTest`, `JwtIssuerTest`) + live via the frontend and `curl` |
+| **Accounts** — open (with an optional nickname to tell same-type/same-currency accounts apart), deposit, withdraw, list, get, list currencies | Unit tests + live via `docker compose`/`playground.html`/the frontend |
 | **FX conversion** ("sell balance" between own accounts) | Unit tests (direct + inverse rate lookup, no-rate-available case) + live |
 | **Internal transfers** ("pay other users," same bank, atomic) | Unit tests + live |
 | **Payments** ("pay other banks," fraud check → settlement saga → simulated clearing → compensation) | Unit tests + live, including a real settle and a real over-threshold compensate |
@@ -54,6 +60,7 @@ honest tradeoff I made rather than chase environment flakiness indefinitely.
 | **Metrics + dashboards (Prometheus/Grafana)** | Live: 151 scraped metrics, a working Grafana dashboard, 5 alert rules actually loaded (I found the alert rules file wasn't even mounted into the container — fixed). |
 | **Load testing (Gatling)** | Actually run, not just written: 750 requests across 3 scenarios, 0 failures, transfer p99 of 67ms. Real numbers in `docs/PERFORMANCE_BASELINE.md`. |
 | **Postgres 18 / Kafka 4.3.1 / Redis 8** | Migrated from 16 / 3.8.0 / 7 and verified working end to end, including a Postgres 18 volume-layout change I had to fix. |
+| **React/TypeScript frontend** | Vite + Tailwind + Zustand + React Query + React Router, `frontend/`, built and served by nginx (`frontend/Dockerfile`) behind the same origin as the API so SameSite=Strict cookies work. Clicked through live: signup → dashboard → deposit → originate a loan → attempt a transfer to a nonexistent account and see the real error surface as a toast. |
 
 ## What's simulated / stand-in (by design, documented, not hidden)
 
@@ -85,10 +92,11 @@ Full reasoning for every one of these, and what productionizing each would take,
 - **`docs/DEPLOYMENT.md`** — not written, since I haven't actually deployed anywhere real to
   document. `docs/OPERATIONS.md` (runbooks/on-call) exists and is written against what's actually
   running.
-- **No real login/registration system** — JWTs are hand-issued (see
-  `AccountSecurityIntegrationTest` for how tests mint one); ownership is enforced on whatever
-  `clientId` a valid JWT carries, but there's no signup/login endpoint issuing tokens for real
-  users. This was an explicit scope decision, not an oversight.
+- **A real OAuth2/OIDC identity provider** — `AuthController`/`AuthServiceImpl` issue real JWTs
+  against a real `users` table now (bcrypt-hashed passwords, refresh-token rotation), but there's no
+  MFA, password reset, or email verification, and it's a hand-rolled HS256 issuer rather than a
+  managed IdP (Auth0/Cognito/Keycloak) — see `docs/DESIGN_DECISIONS.md` for what swapping one in
+  would take.
 - **Credit checks, collateral, variable/compounding interest, loan default handling** beyond a
   status flag — not modelled for loans.
 - **Cross-currency internal transfers** are rejected (`CurrencyMismatchException`), not
@@ -98,8 +106,9 @@ Full reasoning for every one of these, and what productionizing each would take,
 
 ```
 src/main/java/com/dcbate/tradingplatform/
-├── domain/          entities + enums (Account, Payment, Transfer, Loan, Order, Trade, ...)
-├── security/         CallerPrincipal — ownership-check plumbing shared by every client-facing service
+├── domain/          entities + enums (Account, Payment, Transfer, Loan, Order, Trade, User, ...)
+├── security/         CallerPrincipal (ownership checks) + JwtIssuer (mints the JWTs auth/ issues)
+├── auth/              AuthController/Service — signup, login, refresh (rotates refresh tokens)
 ├── account/           AccountController/Service/Repository — open, deposit, withdraw, convert, list currencies
 ├── transfer/          TransferController/Service/Repository — same-bank transfers
 ├── payment/           Payment, FraudDetection, Ledger, Settlement (saga), Reconciliation
@@ -114,8 +123,18 @@ src/main/java/com/dcbate/tradingplatform/
 └── actuator/            Custom health indicator (matching-engine order-book depth)
 ```
 
-`src/main/resources/`: `application.yml` (+ `-dev`/`-k8s` profiles), `db/migration/V1..V8`
-(Flyway), `static/playground.html` (interactive demo UI, permitAll in every profile).
+`src/main/resources/`: `application.yml` (+ `-dev`/`-k8s` profiles), `db/migration/V1..V7`
+(Flyway — V1 through V6 are each the final shape of their tables, not a patchwork of later ALTERs;
+I squashed the pre-auth history once that schema settled rather than leave rename/add-column
+migrations as permanent scar tissue. V7 adds `accounts.nickname` on top of that clean base — a
+genuinely new column, not scar tissue from a design I got wrong), `static/playground.html`
+(interactive demo UI, permitAll in every profile).
+
+`frontend/`: the React/TypeScript app — `src/pages` (Login, Signup, Dashboard, Accounts, Transfer,
+Loans, Settings), `src/hooks` (React Query hooks per domain), `src/store` (Zustand: `authStore`
+persists who's logged in, `appStore` holds small cross-page UI state), `src/api/client.ts` (axios,
+cookie-based auth, one automatic refresh-and-retry on a 401). `Dockerfile` + `nginx.conf` build and
+serve it; nginx also proxies `/v1/*` and `/auth/*` to the backend so the browser sees one origin.
 
 `docs/`: domain docs (`TRADING_SYSTEM.md`, `PAYMENT_SYSTEM.md`, `ACCOUNTS.md`) plus everything from
 the operationalization pass — `OBSERVABILITY_PROOF.md`, `PERFORMANCE_BASELINE.md`,
@@ -130,7 +149,9 @@ toggle for local testing. This is the one I've verified against a real cluster.
 
 | Method | Path | Notes |
 |---|---|---|
-| POST/GET | `/v1/accounts`, `/v1/accounts/{id}` | open, get, list (`?clientId=`) |
+| POST | `/auth/signup`, `/auth/login` | creates/authenticates a user, sets HTTP-only access/refresh cookies |
+| POST | `/auth/refresh`, `/auth/logout` | rotates the refresh token; logout just clears cookies |
+| POST/GET | `/v1/accounts`, `/v1/accounts/{id}` | open (optional `nickname`), get, list (`?clientId=`) |
 | GET | `/v1/accounts/currencies` | public — the currency dropdown in `playground.html` is sourced from here |
 | POST | `/v1/accounts/{id}/deposit`, `/withdraw`, `/convert` | |
 | POST/GET | `/v1/transfers`, `/v1/transfers/{id}` | |
@@ -157,7 +178,9 @@ read-only) **and** pass a `CallerPrincipal` ownership check — see `docs/ACCOUN
    works, they just aren't connected yet.
 3. **A real GCP deployment** once credentials are available, following the already-written GitHub
    Actions workflow — and write `docs/DEPLOYMENT.md` once that's actually true, not before.
-4. **A real login/OAuth2 flow**, replacing hand-issued JWTs.
+4. **Front the hand-rolled JWT issuer with a real OAuth2/OIDC IdP** — `SecurityConfig`'s resource
+   server barely changes (swap the shared-secret decoder for a JWKS one); `CallerPrincipal` and
+   every controller are already IdP-agnostic since they only read claims off a validated token.
 5. Everything else in "What's genuinely not done yet" above.
 
 Read `README.md` and `ARCHITECTURE.md` first — this doc is a status snapshot, those are the

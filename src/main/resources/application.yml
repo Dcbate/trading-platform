@@ -50,6 +50,14 @@ jwt:
   # and likely front an OAuth2 IdP instead of a shared symmetric secret.
   secret: ${JWT_SECRET:local-dev-secret-change-me-please-32bytes}
   issuer: trading-platform
+  access-token-ttl-minutes: 15
+  refresh-token-ttl-days: 7
+
+app:
+  security:
+    # AuthController sets access_token/refresh_token as Secure cookies by default — requires
+    # HTTPS, which is why the dev profile flips this to false for plain-http local curl testing.
+    cookie-secure: true
 
 server:
   port: 8080

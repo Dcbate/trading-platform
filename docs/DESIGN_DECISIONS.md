@@ -83,31 +83,43 @@ two of a client's own accounts.
 subscription (WebSocket or FIX depending on provider); the Redis caching, Kafka publish, and
 anomaly-detection consumers are unaffected.
 
-## Login / JWT issuance — no real flow (JWTs are hand-issued)
+## Login / JWT issuance — real, but hand-rolled rather than a managed IdP
 
-**Files checked:** `config/SecurityConfig.java`, and a full repo search for any auth/login/signup
-endpoint or token-issuing code.
+**Files:** `auth/api/AuthController.java`, `auth/service/AuthServiceImpl.java`,
+`security/JwtIssuer.java`, `config/SecurityConfig.java`.
 
-There's no `AuthController`, no `/login` or `/register` endpoint, and no `JwtEncoder` or
-token-generation code anywhere in `src/main/java`. `SecurityConfig` only configures a **resource
-server** — it validates JWTs signed with a shared secret (`jwt.secret`), it never mints one. The
-only place I actually construct a JWT in this codebase is test code
-(`AccountSecurityIntegrationTest`, hand-signing via `nimbus-jose-jwt`), and the `dev` Spring profile
-bypasses authentication entirely (grants every role to an anonymous principal) so I can exercise the
-API with plain `curl`/`playground.html` without a token at all.
+This used to be a gap — no signup/login endpoint existed, and the only place a JWT was ever
+constructed was test code hand-signing one. It isn't anymore: `POST /auth/signup` creates a real
+`User` row (bcrypt-hashed password via `PasswordEncoder`), auto-opens a `CHECKING` account through
+the same `AccountService.openAccount` every other caller goes through, and `AuthServiceImpl` mints a
+real access token (15 min) and refresh token (7 days) via `JwtIssuer` — the same HS256 signing
+`SecurityConfig`'s `NimbusJwtDecoder` validates, so a token minted at signup passes the existing
+resource-server filter chain unchanged. `POST /auth/login` does the same after verifying the
+password hash. `POST /auth/refresh` rotates the refresh token: the redeemed row is marked revoked in
+the `refresh_tokens` table before a new pair is issued, so replaying an old refresh token fails
+outright rather than silently succeeding — that's the "rotation" part, not just "long-lived token."
+Tokens are set as HTTP-only, `SameSite=Strict` cookies (`AuthController`), never returned in a JSON
+body a script could read into `localStorage`.
 
-**Why:** building a real identity provider (registration, password/MFA, session management) is an
-entirely separate, large body of work orthogonal to what I set out to demonstrate here —
-event-driven banking domain logic, ownership-based authorization, saga patterns. What's real is the
-authorization model I built *on top of* a valid JWT: `CallerPrincipal`/`requireOwner` enforcing that
-a client's token can only see/act on their own resources, proven end-to-end by
-`AccountSecurityIntegrationTest` against the real (non-`dev`) filter chain.
+**What's still a stand-in:** it's a hand-rolled issuer, not a managed identity provider. No MFA, no
+password reset flow, no email verification, no OAuth2/social login. `dev` profile still bypasses
+authentication entirely for `curl`/`playground.html` convenience — real login isn't required to
+exercise the API locally, only to get a token the non-`dev` filter chain will accept.
+
+**Why I built it this way:** a full identity provider (MFA, session management, password reset,
+compliance-grade audit) is a separate, large body of work from what this project set out to
+demonstrate — event-driven banking domain logic, ownership-based authorization, saga patterns. What
+I did build for real is the part that actually exercises that domain logic: a genuine user, a real
+password check, a real token a real client can use, and the same `CallerPrincipal`/`requireOwner`
+ownership model enforced on top of it, proven end-to-end by `AccountSecurityIntegrationTest` against
+the real (non-`dev`) filter chain.
 
 **To productionize:** front the resource server with a real OAuth2/OIDC identity provider (Auth0,
 Cognito, Keycloak, or a bank's own IdP) — `SecurityConfig`'s `jwtSecurityFilterChain` barely changes
 (swap the shared-secret `NimbusJwtDecoder` for a JWKS-based one pointed at the IdP's issuer); zero
 changes needed in `CallerPrincipal` or any controller, since they only ever look at claims already
-on a validated token.
+on a validated token. `AuthController`/`AuthServiceImpl` would mostly go away, replaced by the IdP's
+own signup/login/consent flows.
 
 ## FX trade execution does not move account balances — a gap I'm stating, not hiding
 

@@ -1,14 +1,16 @@
 CREATE TABLE payments (
-    payment_id      UUID PRIMARY KEY,
-    client_id       VARCHAR(64)     NOT NULL,
-    amount          NUMERIC(20, 8)  NOT NULL CHECK (amount > 0),
-    status          VARCHAR(20)     NOT NULL,
-    idempotency_key VARCHAR(128)    NOT NULL UNIQUE,
-    country         VARCHAR(2)      NOT NULL,
-    created_at      TIMESTAMPTZ     NOT NULL
+    payment_id        UUID PRIMARY KEY,
+    client_id         VARCHAR(64)     NOT NULL,
+    source_account_id UUID            NOT NULL REFERENCES accounts (account_id),
+    amount            NUMERIC(20, 8)  NOT NULL CHECK (amount > 0),
+    status            VARCHAR(20)     NOT NULL,
+    idempotency_key   VARCHAR(128)    NOT NULL UNIQUE,
+    country           VARCHAR(2)      NOT NULL,
+    created_at        TIMESTAMPTZ     NOT NULL
 );
 
 CREATE INDEX idx_payments_client_id ON payments (client_id);
+CREATE INDEX idx_payments_source_account_id ON payments (source_account_id);
 
 CREATE TABLE ledger_entries (
     entry_id    UUID PRIMARY KEY,

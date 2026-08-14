@@ -5,6 +5,11 @@
 security:
   dev-mode: true
 
+app:
+  security:
+    # Plain http locally (no TLS termination) — a Secure cookie would just never get sent.
+    cookie-secure: false
+
 logging:
   level:
     com.dcbate.tradingplatform: DEBUG

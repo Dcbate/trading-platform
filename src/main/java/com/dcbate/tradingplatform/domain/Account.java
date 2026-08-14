@@ -43,6 +43,10 @@ public class Account {
     @Column(nullable = false)
     private String currency;
 
+    // Optional, client-chosen — accountId is the real identifier, this just makes two same-type,
+    // same-currency accounts distinguishable in a UI without reading UUIDs.
+    private String nickname;
+
     @Column(nullable = false)
     private BigDecimal balance;
 

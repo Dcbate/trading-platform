@@ -5,6 +5,8 @@ CREATE TABLE loans (
     principal                     NUMERIC(20, 8)  NOT NULL CHECK (principal > 0),
     outstanding_principal         NUMERIC(20, 8)  NOT NULL CHECK (outstanding_principal >= 0),
     interest_rate_annual_percent  NUMERIC(6, 3)   NOT NULL CHECK (interest_rate_annual_percent >= 0),
+    product_type                  VARCHAR(30)     NOT NULL,
+    term_months                   INT             NOT NULL CHECK (term_months > 0),
     accrued_interest              NUMERIC(20, 8)  NOT NULL CHECK (accrued_interest >= 0),
     status                        VARCHAR(20)     NOT NULL,
     created_at                    TIMESTAMPTZ     NOT NULL,

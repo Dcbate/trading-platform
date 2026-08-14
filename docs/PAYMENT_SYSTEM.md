@@ -42,7 +42,7 @@ PENDING → RESERVED → SETTLED
 
 `POST /v1/payments` is idempotent on `idempotencyKey`: `PaymentServiceImpl.submitPayment()` checks
 for an existing payment with that key first (a DB unique constraint backs this, not just an
-application-level check — see `V2__payments_schema.sql`) and returns it unchanged rather than
+application-level check — see `V3__payments_schema.sql`) and returns it unchanged rather than
 creating a duplicate. I built it this way so a client retrying a timed-out request is genuinely
 safe to resubmit with the same key, not just "probably fine."
 

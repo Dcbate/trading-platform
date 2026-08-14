@@ -2,6 +2,7 @@ package com.dcbate.tradingplatform.account.service;
 
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
+import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
 import java.math.BigDecimal;
@@ -28,4 +29,12 @@ public interface AccountService {
     AccountResponse withdraw(UUID accountId, BigDecimal amount, CallerPrincipal caller);
 
     AccountResponse convert(UUID fromAccountId, ConvertRequest request, CallerPrincipal caller);
+
+    /**
+     * Closes an account. A zero-balance account just closes. A positive balance requires
+     * {@code request.destinationAccountId()} — swept there in full before the account flips to
+     * {@code CLOSED} — since money can't simply disappear; there's no cash withdrawal that erases
+     * a balance without moving it somewhere.
+     */
+    AccountResponse closeAccount(UUID accountId, CloseAccountRequest request, CallerPrincipal caller);
 }

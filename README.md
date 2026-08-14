@@ -127,9 +127,9 @@ and I'd rather tell you exactly which than have you find out the hard way:
 | Email / Slack notifications | **Simulated** — logged, not sent to a real provider |
 | The "other bank" a payment clears against | **Simulated** — a deterministic stand-in (fails above $500k, on purpose, so both outcomes are testable) |
 | FX market prices | **Simulated** — a randomized walk, not a real market feed |
-| Login / getting a token | **Not built** — this demo hands you a token directly (or skips auth locally); there's no sign-up flow |
+| Signup / login | **Real** — `POST /auth/signup`/`/auth/login` create a real user, bcrypt-hash the password, and issue real JWTs as HTTP-only cookies. What's not real: it's a hand-rolled issuer, not a managed identity provider (Auth0/Cognito/Keycloak) — no MFA, password reset, or email verification. |
 
-I picked these five specifically because none of them change the interesting parts of the system —
+I picked these specifically because none of them change the interesting parts of the system —
 there's no real bank clearing house I can integrate against in a demo, and email delivery is a side
 effect at the edge, not the saga logic I actually wanted to prove out. Full reasoning for every
 line above, and what real integration would take, in [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md).
@@ -138,7 +138,7 @@ line above, and what real integration would take, in [DESIGN_DECISIONS.md](docs/
 
 Everything below I actually ran and checked, not just wrote and assumed would work:
 
-- **118 automated tests pass**, plus a real security test that proves one client's login can't see
+- **131 automated tests pass**, plus a real security test that proves one client's login can't see
   another client's account.
 - **Distributed tracing works end-to-end** — I can trace any request through the whole system in
   Jaeger, down to which exact step was slow. I verified this live, and along the way found a real
@@ -162,11 +162,14 @@ Requires Docker.
 ./scripts/local-setup.sh
 ```
 
-This builds the app and starts Postgres, Redis, Kafka, the API, and the observability stack
-(Jaeger, Prometheus, Grafana) via `docker-compose`, then waits for `/actuator/health` to report
-`UP`. Once ready:
+This builds the app and starts Postgres, Redis, Kafka, the API, the frontend, and the observability
+stack (Jaeger, Prometheus, Grafana) via `docker-compose`, then waits for `/actuator/health` to
+report `UP`. Once ready:
 
 ```bash
+# The actual frontend — sign up, and everything below is a real button click, not just a curl
+open http://localhost:5173
+
 # The interactive playground — a button for every feature in this README
 open http://localhost:8080/playground.html
 
@@ -374,7 +377,10 @@ Swagger UI: `/v1/swagger-ui/index.html`. OpenAPI JSON: `/v1/api-docs`.
 - The `dev` profile additionally grants every role to the anonymous principal and permits all HTTP
   requests, so `@PreAuthorize` still runs the same code path as production — it just doesn't
   require a token locally. **Never run `dev` outside local development.**
-- There is no real login/registration flow — see [What's real and what's simulated](#whats-real-and-what-simulated).
+- Signup/login (`POST /auth/signup`, `/auth/login`) mint real JWTs — HTTP-only, `SameSite=Strict`
+  cookies, never `localStorage` — with bcrypt-hashed passwords and one-time-use refresh-token
+  rotation; see [What's real and what's simulated](#whats-real-and-what-simulated) for what's not
+  built yet (a real OAuth2/OIDC IdP).
   No secrets are committed; `JWT_SECRET`, `GEMINI_API_KEY`, and `CLAUDE_API_KEY` are environment
   variables with local-only placeholder defaults.
 
@@ -411,14 +417,15 @@ the Testcontainers networking environment, not in the application itself.
 ## Roadmap
 
 - **Done**: the full retail-banking domain (accounts, deposits/withdrawals, internal transfers, FX
-  conversion, loans) with ownership-checked security; Kafka-down fallback queue; compliance-officer
-  approval workflow; Kubernetes manifests + Helm chart (verified on a local `kind` cluster);
-  distributed tracing, metrics, and dashboards (verified live); Gatling load tests (verified, real
-  numbers); Postgres/Kafka/Redis on latest stable versions.
+  conversion, loans) with ownership-checked security; real signup/login (bcrypt, JWT issuance,
+  refresh-token rotation); a React/TypeScript frontend for all of it; Kafka-down fallback queue;
+  compliance-officer approval workflow; Kubernetes manifests + Helm chart (verified on a local
+  `kind` cluster); distributed tracing, metrics, and dashboards (verified live); Gatling load tests
+  (verified, real numbers); Postgres/Kafka/Redis on latest stable versions.
 - **Remaining**: real SendGrid/Slack/bank-gateway integrations, wiring FX trade fills to move
   account balances, a real GCP Cloud Run deployment (the pipeline is written but untested — I don't
-  have cloud credentials in this environment), GCP Secret Manager/KMS for secrets, a real
-  login/OAuth2 identity provider.
+  have cloud credentials in this environment), GCP Secret Manager/KMS for secrets, fronting the
+  hand-rolled JWT issuer with a real OAuth2/OIDC identity provider.
 
 ## Contributing
 

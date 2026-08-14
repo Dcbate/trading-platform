@@ -70,16 +70,17 @@ class AccountServiceImplTest {
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
         AccountResponse response = accountService.openAccount(
-                new AccountRequest("client-1", AccountType.CHECKING, "USD", new BigDecimal("1000.00")), owner);
+                new AccountRequest("client-1", AccountType.CHECKING, "USD", "Rent fund", new BigDecimal("1000.00")), owner);
 
         assertThat(response.status()).isEqualTo(AccountStatus.ACTIVE);
         assertThat(response.balance()).isEqualByComparingTo("1000.00");
         assertThat(response.currency()).isEqualTo("USD");
+        assertThat(response.nickname()).isEqualTo("Rent fund");
     }
 
     @Test
     void openAccountDeniedForAnotherClient() {
-        AccountRequest request = new AccountRequest("client-2", AccountType.CHECKING, "USD", BigDecimal.ZERO);
+        AccountRequest request = new AccountRequest("client-2", AccountType.CHECKING, "USD", null, BigDecimal.ZERO);
 
         assertThatThrownBy(() -> accountService.openAccount(request, owner)).isInstanceOf(AccessDeniedException.class);
     }

@@ -107,5 +107,14 @@ services:
       JWT_SECRET: ${JWT_SECRET:-local-dev-secret-change-me-please-32bytes}
       OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
 
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - app
+    ports:
+      - "5173:80"
+
 volumes:
   postgres-data:
