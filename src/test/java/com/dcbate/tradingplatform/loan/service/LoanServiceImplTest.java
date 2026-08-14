@@ -20,6 +20,7 @@ import com.dcbate.tradingplatform.loan.api.dto.LoanRequest;
 import com.dcbate.tradingplatform.loan.api.dto.LoanResponse;
 import com.dcbate.tradingplatform.loan.repository.LoanRepository;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -56,7 +57,7 @@ class LoanServiceImplTest {
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
                 "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
                 "account-activity", "transfers", "loans");
-        loanService = new LoanServiceImpl(loanRepository, accountRepository, kafkaEventPublisher, topics);
+        loanService = new LoanServiceImpl(loanRepository, accountRepository, kafkaEventPublisher, topics, new SimpleMeterRegistry());
     }
 
     private Account account(BigDecimal balance) {

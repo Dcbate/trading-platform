@@ -15,6 +15,7 @@ import com.dcbate.tradingplatform.trading.api.dto.OrderResponse;
 import com.dcbate.tradingplatform.trading.repository.OrderRepository;
 import com.dcbate.tradingplatform.trading.repository.TradeRepository;
 import com.dcbate.tradingplatform.trading.websocket.OrderStreamHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
@@ -44,7 +45,8 @@ class ExecutionServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        executionService = new ExecutionServiceImpl(tradeRepository, orderRepository, tradeJournalWriter, orderStreamHandler);
+        executionService = new ExecutionServiceImpl(
+                tradeRepository, orderRepository, tradeJournalWriter, orderStreamHandler, new SimpleMeterRegistry());
     }
 
     @Test

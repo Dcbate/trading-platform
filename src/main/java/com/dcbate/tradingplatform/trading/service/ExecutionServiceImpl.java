@@ -9,6 +9,7 @@ import com.dcbate.tradingplatform.trading.api.dto.OrderResponse;
 import com.dcbate.tradingplatform.trading.repository.OrderRepository;
 import com.dcbate.tradingplatform.trading.repository.TradeRepository;
 import com.dcbate.tradingplatform.trading.websocket.OrderStreamHandler;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -26,10 +27,14 @@ public class ExecutionServiceImpl implements ExecutionService {
     private final OrderRepository orderRepository;
     private final TradeJournalWriter tradeJournalWriter;
     private final OrderStreamHandler orderStreamHandler;
+    private final MeterRegistry meterRegistry;
 
     @Override
     @Transactional
     public void recordTrade(TradeEvent event) {
+        meterRegistry.counter("fx.trades.total", "currencyPair", event.currencyPair()).increment();
+        meterRegistry.summary("fx.trade.volume", "currencyPair", event.currencyPair()).record(event.quantity().doubleValue());
+
         tradeRepository.save(Trade.builder()
                 .tradeId(event.tradeId())
                 .buyOrderId(event.buyOrderId())

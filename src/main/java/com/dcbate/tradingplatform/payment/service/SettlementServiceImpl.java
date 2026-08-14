@@ -13,6 +13,7 @@ import com.dcbate.tradingplatform.kafka.event.NotificationEvent;
 import com.dcbate.tradingplatform.kafka.event.PaymentValidatedEvent;
 import com.dcbate.tradingplatform.payment.repository.PaymentRepository;
 import com.dcbate.tradingplatform.payment.repository.SettlementRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ public class SettlementServiceImpl implements SettlementService {
     private final BankClearingClient bankClearingClient;
     private final KafkaEventPublisher kafkaEventPublisher;
     private final KafkaTopicsProperties topics;
+    private final MeterRegistry meterRegistry;
 
     @Override
     @Transactional
@@ -82,6 +84,7 @@ public class SettlementServiceImpl implements SettlementService {
         payment.setStatus(PaymentStatus.FAILED);
         paymentRepository.save(payment);
 
+        meterRegistry.counter("payment.settlement.outcome", "outcome", "FAILED").increment();
         publishNotification(payment, NotificationType.PAYMENT_FAILED, reason);
         log.warn("Payment settlement rejected before booking: paymentId={}, reason={}", payment.getPaymentId(), reason);
     }
@@ -94,6 +97,7 @@ public class SettlementServiceImpl implements SettlementService {
         payment.setStatus(PaymentStatus.SETTLED);
         paymentRepository.save(payment);
 
+        meterRegistry.counter("payment.settlement.outcome", "outcome", "SETTLED").increment();
         publishNotification(payment, NotificationType.PAYMENT_SETTLED, "Payment settled successfully");
         log.info("Payment settled: paymentId={}", payment.getPaymentId());
     }
@@ -108,6 +112,7 @@ public class SettlementServiceImpl implements SettlementService {
         payment.setStatus(PaymentStatus.FAILED);
         paymentRepository.save(payment);
 
+        meterRegistry.counter("payment.settlement.outcome", "outcome", "FAILED").increment();
         String reason = "Bank clearing failed for amount %s; ledger entries reversed".formatted(payment.getAmount());
         publishNotification(payment, NotificationType.PAYMENT_FAILED, reason);
         log.warn("Payment settlement failed and compensated: paymentId={}", payment.getPaymentId());

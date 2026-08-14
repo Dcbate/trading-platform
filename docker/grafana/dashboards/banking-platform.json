@@ -1,0 +1,120 @@
+{
+  "title": "Banking Platform",
+  "uid": "banking-platform",
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Internal transfer latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(transfer_latency_seconds_bucket[5m]))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, rate(transfer_latency_seconds_bucket[5m]))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, rate(transfer_latency_seconds_bucket[5m]))", "legendFormat": "p99", "refId": "C" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Fraud decisions / sec, by action",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum by (action) (rate(fraud_decision_total[5m]))", "legendFormat": "{{action}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Payment settlement outcome / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum by (outcome) (rate(payment_settlement_outcome_total[5m]))", "legendFormat": "{{outcome}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Payment settlement success rate (15m window)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(rate(payment_settlement_outcome_total{outcome=\"SETTLED\"}[15m])) / sum(rate(payment_settlement_outcome_total[15m]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Fraud detection latency (p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.99, rate(fraud_detection_latency_seconds_bucket[5m]))", "legendFormat": "p99", "refId": "A" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Kafka consumer lag (total, across all groups)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "kafka_consumer_lag", "legendFormat": "lag (messages)", "refId": "A" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "FX trades / sec, by currency pair",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum by (currencyPair) (rate(fx_trades_total[5m]))", "legendFormat": "{{currencyPair}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Loan interest accrued, cumulative total",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 24 },
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "loan_interest_accrued_total", "refId": "A" }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "HTTP request latency (p99), by endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 24 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.99, sum by (le, uri) (rate(http_server_requests_seconds_bucket[5m])))", "legendFormat": "{{uri}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Postgres connection pool utilization",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 24 },
+      "datasource": "Prometheus",
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        { "expr": "hikaricp_connections_active / hikaricp_connections_max", "legendFormat": "active/max", "refId": "A" }
+      ]
+    }
+  ]
+}

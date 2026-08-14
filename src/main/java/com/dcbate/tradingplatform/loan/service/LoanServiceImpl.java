@@ -18,6 +18,7 @@ import com.dcbate.tradingplatform.loan.api.dto.LoanRequest;
 import com.dcbate.tradingplatform.loan.api.dto.LoanResponse;
 import com.dcbate.tradingplatform.loan.repository.LoanRepository;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
@@ -47,6 +48,7 @@ public class LoanServiceImpl implements LoanService {
     private final AccountRepository accountRepository;
     private final KafkaEventPublisher kafkaEventPublisher;
     private final KafkaTopicsProperties topics;
+    private final MeterRegistry meterRegistry;
 
     @Override
     @Transactional
@@ -140,6 +142,7 @@ public class LoanServiceImpl implements LoanService {
     public void accrueInterest() {
         Instant now = Instant.now();
         List<Loan> activeLoans = loanRepository.findByStatus(LoanStatus.ACTIVE);
+        BigDecimal totalAccrued = BigDecimal.ZERO;
         for (Loan loan : activeLoans) {
             long days = Duration.between(loan.getLastAccrualAt(), now).toDays();
             if (days <= 0) {
@@ -149,8 +152,10 @@ public class LoanServiceImpl implements LoanService {
             loan.setAccruedInterest(loan.getAccruedInterest().add(accrual));
             loan.setLastAccrualAt(now);
             loanRepository.save(loan);
+            totalAccrued = totalAccrued.add(accrual);
         }
-        log.info("Interest accrual run complete: loansProcessed={}", activeLoans.size());
+        meterRegistry.counter("loan.interest.accrued").increment(totalAccrued.doubleValue());
+        log.info("Interest accrual run complete: loansProcessed={}, totalAccrued={}", activeLoans.size(), totalAccrued);
     }
 
     /** Simple (non-compounding) daily interest: principal * (annualRate/100) * (days/365). */

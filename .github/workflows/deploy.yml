@@ -1,0 +1,134 @@
+name: Deploy
+
+# Written and validated for correctness (actions/versions exist, inputs match their docs) but
+# never run — this repo has no GCP project or Workload Identity Federation pool configured, and
+# this file has not been exercised against real GCP. See docs/DEPLOYMENT.md for what's needed to
+# actually turn this on.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  GCP_REGION: europe-west2
+  ARTIFACT_REGISTRY: europe-west2-docker.pkg.dev
+  IMAGE: ${{ vars.GCP_PROJECT_ID }}/trading-platform/app
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for Workload Identity Federation
+    outputs:
+      image-tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: maven
+
+      - name: Run unit + integration tests
+        run: mvn -B verify
+
+      - id: tag
+        run: echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to GCP (Workload Identity Federation, no long-lived key)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
+
+      - name: Build image
+        run: docker build -f docker/Dockerfile -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.IMAGE }}:${{ steps.tag.outputs.tag }} .
+
+      - name: Push image
+        run: docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+
+  deploy-staging:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run (staging)
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: trading-platform-staging
+          region: ${{ env.GCP_REGION }}
+          image: ${{ env.ARTIFACT_REGISTRY }}/${{ env.IMAGE }}:${{ needs.build-and-push.outputs.image-tag }}
+          # Blue/green by default: Cloud Run keeps the previous revision serving traffic until
+          # this one passes its own readiness probe, so there's no window of downtime.
+
+      - name: Smoke test staging
+        run: |
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          curl -fsS "$URL/actuator/health" | grep -q '"status":"UP"'
+          curl -fsS -X POST "$URL/v1/accounts" -H 'Content-Type: application/json' \
+            -d '{"clientId":"smoke-test","accountType":"CHECKING","currency":"USD","openingBalance":0.00}' \
+            | grep -q '"status":"ACTIVE"'
+
+      - name: Rollback staging on smoke test failure
+        if: failure()
+        run: |
+          PREVIOUS_REVISION=$(gcloud run revisions list --service trading-platform-staging \
+            --region ${{ env.GCP_REGION }} --format='value(name)' --sort-by='~metadata.creationTimestamp' | sed -n 2p)
+          gcloud run services update-traffic trading-platform-staging \
+            --region ${{ env.GCP_REGION }} --to-revisions "$PREVIOUS_REVISION=100"
+
+  deploy-production:
+    needs: [build-and-push, deploy-staging]
+    runs-on: ubuntu-latest
+    # `environment: production` requires a manual approval gate configured in the repo's
+    # environment protection rules — this job pauses for a human before running.
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run (production)
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: trading-platform
+          region: ${{ env.GCP_REGION }}
+          image: ${{ env.ARTIFACT_REGISTRY }}/${{ env.IMAGE }}:${{ needs.build-and-push.outputs.image-tag }}
+
+      - name: Smoke test production
+        run: |
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          curl -fsS "$URL/actuator/health" | grep -q '"status":"UP"'
+
+      - name: Rollback production on smoke test failure
+        if: failure()
+        run: |
+          PREVIOUS_REVISION=$(gcloud run revisions list --service trading-platform \
+            --region ${{ env.GCP_REGION }} --format='value(name)' --sort-by='~metadata.creationTimestamp' | sed -n 2p)
+          gcloud run services update-traffic trading-platform \
+            --region ${{ env.GCP_REGION }} --to-revisions "$PREVIOUS_REVISION=100"

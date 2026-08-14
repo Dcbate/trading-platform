@@ -1,0 +1,46 @@
+groups:
+  - name: trading-platform
+    rules:
+      - alert: TransferLatencyP99High
+        expr: histogram_quantile(0.99, rate(transfer_latency_seconds_bucket[5m])) > 0.5
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Internal transfer p99 latency above 500ms"
+
+      - alert: PaymentSuccessRateLow
+        expr: |
+          sum(rate(payment_settlement_outcome_total{outcome="SETTLED"}[15m]))
+          /
+          sum(rate(payment_settlement_outcome_total[15m]))
+          < 0.99
+        for: 5m
+        labels:
+          severity: investigate
+        annotations:
+          summary: "Payment settlement success rate below 99% over the last 15m"
+
+      - alert: FraudDetectionLatencyHigh
+        expr: histogram_quantile(0.99, rate(fraud_detection_latency_seconds_bucket[5m])) > 2
+        for: 2m
+        labels:
+          severity: investigate
+        annotations:
+          summary: "Fraud detection p99 latency above 2s — check the Gemini API"
+
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumer_lag > 1000
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Kafka consumer lag above 1000 messages across the platform's consumer groups"
+
+      - alert: DbConnectionPoolNearExhaustion
+        expr: hikaricp_connections_active / hikaricp_connections_max > 0.9
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Postgres connection pool above 90% utilization"

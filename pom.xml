@@ -133,6 +133,17 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- Distributed tracing: bridges Micrometer Observation API (already instrumenting Spring
+             MVC/Kafka) to OpenTelemetry, exported over OTLP to the Jaeger collector. Versions
+             come from spring-boot-starter-parent's dependency management. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
 
         <!-- API docs -->
         <dependency>
@@ -182,6 +193,16 @@
             <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Gatling load tests (src/test/java/.../loadtest). Not run as part of `mvn verify` —
+             the plugin below is declared without executions, so it only runs on an explicit
+             `mvn gatling:test`, keeping the normal fast unit-test loop untouched. -->
+        <dependency>
+            <groupId>io.gatling.highcharts</groupId>
+            <artifactId>gatling-charts-highcharts</artifactId>
+            <version>3.11.5</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -224,6 +245,20 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <!-- No <executions> bound: this only runs on an explicit `mvn gatling:test
+                 -Dgatling.simulationClass=...`, never as part of `mvn test`/`verify`, so the
+                 normal fast dev loop and CI unit-test run are unaffected. -->
+            <plugin>
+                <groupId>io.gatling</groupId>
+                <artifactId>gatling-maven-plugin</artifactId>
+                <version>4.13.0</version>
+                <configuration>
+                    <simulationsFolder>src/test/java</simulationsFolder>
+                    <includes>
+                        <include>com.dcbate.tradingplatform.loadtest.*</include>
+                    </includes>
+                </configuration>
             </plugin>
         </plugins>
     </build>

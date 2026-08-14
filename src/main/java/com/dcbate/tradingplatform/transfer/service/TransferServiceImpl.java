@@ -17,6 +17,8 @@ import com.dcbate.tradingplatform.security.CallerPrincipal;
 import com.dcbate.tradingplatform.transfer.api.dto.TransferRequest;
 import com.dcbate.tradingplatform.transfer.api.dto.TransferResponse;
 import com.dcbate.tradingplatform.transfer.repository.TransferRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -34,10 +36,20 @@ public class TransferServiceImpl implements TransferService {
     private final AccountRepository accountRepository;
     private final KafkaEventPublisher kafkaEventPublisher;
     private final KafkaTopicsProperties topics;
+    private final MeterRegistry meterRegistry;
 
     @Override
     @Transactional
     public TransferResponse transfer(TransferRequest request, CallerPrincipal caller) {
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try {
+            return doTransfer(request, caller);
+        } finally {
+            sample.stop(Timer.builder("transfer.latency").publishPercentileHistogram().register(meterRegistry));
+        }
+    }
+
+    private TransferResponse doTransfer(TransferRequest request, CallerPrincipal caller) {
         Account from = requireActiveAccount(request.fromAccountId());
         caller.requireOwner(from.getClientId());
         Account to = requireActiveAccount(request.toAccountId());

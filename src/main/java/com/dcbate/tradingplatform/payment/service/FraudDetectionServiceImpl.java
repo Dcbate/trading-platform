@@ -20,6 +20,8 @@ import com.dcbate.tradingplatform.kafka.event.PaymentEvent;
 import com.dcbate.tradingplatform.kafka.event.PaymentValidatedEvent;
 import com.dcbate.tradingplatform.payment.repository.FraudFlagRepository;
 import com.dcbate.tradingplatform.payment.repository.PaymentRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
@@ -49,6 +51,7 @@ public class FraudDetectionServiceImpl implements FraudDetectionService {
     private final FraudProperties fraudProperties;
     private final PaymentVelocityTracker velocityTracker;
     private final AnomalyDetector anomalyDetector;
+    private final MeterRegistry meterRegistry;
 
     private record FraudFinding(String reason, RiskLevel riskLevel, FraudAction action) {
     }
@@ -56,10 +59,17 @@ public class FraudDetectionServiceImpl implements FraudDetectionService {
     @Override
     @Transactional
     public void evaluate(PaymentEvent event) {
-        Optional<FraudFinding> finding =
-                checkVelocity(event).or(() -> checkCountryChange(event)).or(() -> checkAmountAnomaly(event));
+        // Includes the AnomalyDetector (Gemini) call inside flag() — this is the metric the
+        // "fraud detection latency > 2s -> check Gemini API" alert watches.
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try {
+            Optional<FraudFinding> finding =
+                    checkVelocity(event).or(() -> checkCountryChange(event)).or(() -> checkAmountAnomaly(event));
 
-        finding.ifPresentOrElse(f -> flag(event, f), () -> pass(event));
+            finding.ifPresentOrElse(f -> flag(event, f), () -> pass(event));
+        } finally {
+            sample.stop(Timer.builder("fraud.detection.latency").publishPercentileHistogram().register(meterRegistry));
+        }
     }
 
     private Optional<FraudFinding> checkVelocity(PaymentEvent event) {
@@ -135,11 +145,13 @@ public class FraudDetectionServiceImpl implements FraudDetectionService {
                         UUID.randomUUID(), event.paymentId(), event.clientId(), NotificationType.FRAUD_ALERT,
                         enriched.explanation(), Instant.now()));
 
+        meterRegistry.counter("fraud.decision", "action", finding.action().name()).increment();
         log.warn("Payment flagged by fraud detection: paymentId={}, action={}, reason={}",
                 event.paymentId(), finding.action(), enriched.explanation());
     }
 
     private void pass(PaymentEvent event) {
+        meterRegistry.counter("fraud.decision", "action", FraudAction.PASS.name()).increment();
         kafkaEventPublisher.publish(
                 topics.paymentsValidated(),
                 event.clientId(),

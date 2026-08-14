@@ -20,6 +20,7 @@ import com.dcbate.tradingplatform.security.CallerPrincipal;
 import com.dcbate.tradingplatform.transfer.api.dto.TransferRequest;
 import com.dcbate.tradingplatform.transfer.api.dto.TransferResponse;
 import com.dcbate.tradingplatform.transfer.repository.TransferRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
@@ -56,7 +57,8 @@ class TransferServiceImplTest {
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
                 "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
                 "account-activity", "transfers", "loans");
-        transferService = new TransferServiceImpl(transferRepository, accountRepository, kafkaEventPublisher, topics);
+        transferService = new TransferServiceImpl(
+                transferRepository, accountRepository, kafkaEventPublisher, topics, new SimpleMeterRegistry());
     }
 
     private Account account(UUID accountId, String clientId, String currency, BigDecimal balance) {

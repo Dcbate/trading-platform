@@ -39,6 +39,11 @@ spring:
       enable-auto-commit: false
     listener:
       ack-mode: batch
+      # Wraps each listener invocation in a Micrometer Observation, so a trace started by the
+      # producing HTTP request continues across the Kafka hop instead of starting a new one.
+      observation-enabled: true
+    template:
+      observation-enabled: true
 
 jwt:
   # Local HS256 secret for Phase 1. Production would source this from GCP Secret Manager
@@ -62,6 +67,21 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        # Prometheus-compatible histogram buckets for the built-in HTTP timer, so Grafana can
+        # run histogram_quantile() against it the same way it does for the custom business
+        # timers (transfer.latency, fraud.detection.latency), which set this per-timer instead.
+        http.server.requests: true
+  tracing:
+    sampling:
+      # 100% sampling — this is a demo/dev-scale deployment, not a high-traffic production system
+      # where tailing every trace would be expensive. A real production tuning would sample a
+      # fraction and always-sample errors/slow requests instead.
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
 
 springdoc:
   swagger-ui:

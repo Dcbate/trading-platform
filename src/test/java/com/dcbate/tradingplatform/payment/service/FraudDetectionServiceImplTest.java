@@ -27,6 +27,7 @@ import com.dcbate.tradingplatform.kafka.event.PaymentEvent;
 import com.dcbate.tradingplatform.kafka.event.PaymentValidatedEvent;
 import com.dcbate.tradingplatform.payment.repository.FraudFlagRepository;
 import com.dcbate.tradingplatform.payment.repository.PaymentRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
@@ -63,7 +64,7 @@ class FraudDetectionServiceImplTest {
         FraudProperties fraudProperties = new FraudProperties(3, 5, 60, 2);
         fraudDetectionService = new FraudDetectionServiceImpl(
                 paymentRepository, fraudFlagRepository, kafkaEventPublisher, topics, fraudProperties,
-                new PaymentVelocityTracker(), anomalyDetector);
+                new PaymentVelocityTracker(), anomalyDetector, new SimpleMeterRegistry());
     }
 
     private PaymentEvent paymentEvent(String clientId, String amount, String country) {

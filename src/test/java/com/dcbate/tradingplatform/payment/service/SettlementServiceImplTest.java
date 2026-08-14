@@ -18,6 +18,7 @@ import com.dcbate.tradingplatform.kafka.event.NotificationEvent;
 import com.dcbate.tradingplatform.kafka.event.PaymentValidatedEvent;
 import com.dcbate.tradingplatform.payment.repository.PaymentRepository;
 import com.dcbate.tradingplatform.payment.repository.SettlementRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
@@ -56,7 +57,8 @@ class SettlementServiceImplTest {
                 "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
                 "account-activity", "transfers", "loans");
         settlementService = new SettlementServiceImpl(
-                paymentRepository, settlementRepository, ledgerService, bankClearingClient, kafkaEventPublisher, topics);
+                paymentRepository, settlementRepository, ledgerService, bankClearingClient, kafkaEventPublisher, topics,
+                new SimpleMeterRegistry());
         when(settlementRepository.save(any(Settlement.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
