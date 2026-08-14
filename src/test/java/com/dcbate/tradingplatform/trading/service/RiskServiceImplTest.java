@@ -65,7 +65,7 @@ class RiskServiceImplTest {
     }
 
     private OrderEvent orderEvent(String clientId, String quantity, String price) {
-        return new OrderEvent(UUID.randomUUID(), clientId, "AAPL", OrderSide.BUY, new BigDecimal(quantity), new BigDecimal(price), Instant.now());
+        return new OrderEvent(UUID.randomUUID(), clientId, "EUR/USD", OrderSide.BUY, new BigDecimal(quantity), new BigDecimal(price), Instant.now());
     }
 
     @Test
@@ -78,7 +78,7 @@ class RiskServiceImplTest {
         riskService.evaluate(event);
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.VALIDATED);
-        verify(kafkaEventPublisher).publish(eq("orders-validated"), eq("AAPL"), any(OrderValidatedEvent.class));
+        verify(kafkaEventPublisher).publish(eq("orders-validated"), eq("EUR/USD"), any(OrderValidatedEvent.class));
         verify(riskAlertRepository, never()).save(any());
     }
 

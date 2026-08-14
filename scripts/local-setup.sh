@@ -15,4 +15,5 @@ done
 echo
 echo "Ready. Try:"
 echo "  curl -s http://localhost:8080/v1/swagger-ui.html"
-echo "  curl -s -X POST http://localhost:8080/v1/orders -H 'Content-Type: application/json' -d '{\"clientId\":\"client-1\",\"symbol\":\"AAPL\",\"side\":\"BUY\",\"quantity\":10,\"price\":150.00}'"
+echo "  curl -s -X POST http://localhost:8080/v1/accounts -H 'Content-Type: application/json' -d '{\"clientId\":\"client-1\",\"accountType\":\"CHECKING\",\"currency\":\"USD\",\"openingBalance\":1000.00}'"
+echo "  curl -s -X POST http://localhost:8080/v1/orders -H 'Content-Type: application/json' -d '{\"clientId\":\"client-1\",\"currencyPair\":\"EUR/USD\",\"side\":\"BUY\",\"quantity\":10,\"price\":1.08}'"

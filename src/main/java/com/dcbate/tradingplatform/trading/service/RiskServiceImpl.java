@@ -102,11 +102,11 @@ public class RiskServiceImpl implements RiskService {
 
         kafkaEventPublisher.publish(
                 topics.ordersValidated(),
-                event.symbol(),
+                event.currencyPair(),
                 new OrderValidatedEvent(
                         event.orderId(),
                         event.clientId(),
-                        event.symbol(),
+                        event.currencyPair(),
                         event.side(),
                         event.quantity(),
                         event.price(),

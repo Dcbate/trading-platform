@@ -34,7 +34,7 @@ public class ExecutionServiceImpl implements ExecutionService {
                 .tradeId(event.tradeId())
                 .buyOrderId(event.buyOrderId())
                 .sellOrderId(event.sellOrderId())
-                .symbol(event.symbol())
+                .currencyPair(event.currencyPair())
                 .quantity(event.quantity())
                 .price(event.price())
                 .createdAt(event.createdAt())
@@ -46,8 +46,8 @@ public class ExecutionServiceImpl implements ExecutionService {
         tradeJournalWriter.append(event);
 
         log.info(
-                "Trade executed: tradeId={}, symbol={}, quantity={}, price={}",
-                event.tradeId(), event.symbol(), event.quantity(), event.price());
+                "Trade executed: tradeId={}, currencyPair={}, quantity={}, price={}",
+                event.tradeId(), event.currencyPair(), event.quantity(), event.price());
     }
 
     private void updateOrderStatus(UUID orderId, OrderStatus status) {

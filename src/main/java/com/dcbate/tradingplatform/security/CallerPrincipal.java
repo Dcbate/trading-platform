@@ -13,6 +13,14 @@ import org.springframework.security.core.GrantedAuthority;
  * returns it for a {@code JwtAuthenticationToken} — no custom claim needed). {@code staff} is
  * true for bank staff roles, which may act across clients; {@code CLIENT} may only act on their
  * own resources.
+ *
+ * <p>Controllers resolve {@code authentication} via a plain {@code Authentication} method
+ * parameter, which Spring MVC binds from {@code HttpServletRequest.getUserPrincipal()} — and by
+ * design that returns {@code null} for an anonymous principal (Spring Security deliberately
+ * doesn't treat "anonymous" as "authenticated" there). That's only reachable in the {@code dev}
+ * profile: the {@code !dev} JWT filter chain requires real authentication before a request ever
+ * reaches a controller, so {@code authentication} can't be null there. Treating null as staff
+ * mirrors dev's existing convenience of granting the anonymous principal every role.
  */
 public record CallerPrincipal(String clientId, boolean staff) {
 
@@ -20,6 +28,9 @@ public record CallerPrincipal(String clientId, boolean staff) {
             "ROLE_ADMIN", "ROLE_AUDITOR", "ROLE_COMPLIANCE_OFFICER", "ROLE_TRADER");
 
     public static CallerPrincipal from(Authentication authentication) {
+        if (authentication == null) {
+            return new CallerPrincipal("dev-anonymous", true);
+        }
         boolean staff = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(STAFF_ROLES::contains);

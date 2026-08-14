@@ -12,10 +12,10 @@ import java.util.NavigableMap;
 import java.util.TreeMap;
 
 /**
- * Single-symbol price/time-priority order book. Buys are keyed highest-price-first, sells
+ * Single-currencyPair price/time-priority order book. Buys are keyed highest-price-first, sells
  * lowest-price-first; FIFO within a price level via insertion-ordered deques. Matching for one
- * symbol is synchronized on this instance — different symbols never contend with each other,
- * which is what actually matters for throughput (a truly wait-free multi-symbol book is out of
+ * currencyPair is synchronized on this instance — different currencyPairs never contend with each other,
+ * which is what actually matters for throughput (a truly wait-free multi-currencyPair book is out of
  * scope for Phase 1; see ARCHITECTURE.md).
  */
 public class OrderBook {

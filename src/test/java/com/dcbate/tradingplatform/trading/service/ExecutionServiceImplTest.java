@@ -75,7 +75,7 @@ class ExecutionServiceImplTest {
 
     private TradeEvent tradeEvent(OrderStatus buyStatus, OrderStatus sellStatus) {
         return new TradeEvent(
-                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "AAPL",
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "EUR/USD",
                 new BigDecimal("10"), new BigDecimal("150.00"), buyStatus, sellStatus, Instant.now());
     }
 }

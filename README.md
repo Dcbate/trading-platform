@@ -1,18 +1,23 @@
 # trading-platform
 
-Real-time trading and payment-processing platform. **Phase 1 + 2 (this repo, today): the trading
-system and the payment system** — order intake, risk checks, matching, execution, and a
-compliance trade journal; payment intake, fraud detection, a settlement saga with compensation,
-double-entry ledgering, retrying notifications, and reconciliation — all running end-to-end
-against real Kafka, PostgreSQL, and Redis. Kubernetes/Helm deployment and the full observability
-stack are Phase 3 (see [Roadmap](#roadmap)).
+A retail bank's core platform: clients open **accounts**, deposit and withdraw, pay each other and
+pay other banks, convert currency, take out **loans**, and — as one specialized account type — deal
+on an **FX trading desk**. Order intake, risk checks, matching, execution, and a compliance trade
+journal; payment intake, fraud detection, a settlement saga with compensation, double-entry
+ledgering, retrying notifications, and reconciliation; account balances, internal transfers, FX
+conversion, and loan origination/repayment with interest accrual — all running end-to-end against
+real Kafka, PostgreSQL, and Redis, gated by ownership-checked security so a client can only ever
+touch their own money. Kubernetes/Helm deployment (built and verified against a local cluster) and
+the fallback queue/compliance-approval workflow already exist; the remaining observability/load-test/
+real-integrations work is tracked in [Roadmap](#roadmap).
 
 ## Problem statement
 
-Traders need orders executed in well under 100ms or they lose money. Orders can't be lost or
-silently duplicated. Payments can't be charged twice, can't disappear, and every trade and
-payment has to be reconstructable for compliance after the fact — the system has to keep working
-through spikes, crashes, and network failures.
+A bank's core platform has to get money right, always: a deposit or transfer can't be lost or
+silently duplicated, a client must never be able to see or move another client's money, an FX
+order needs execution well under 100ms or the client loses money on the fill, and every payment,
+transfer, and trade has to be reconstructable for compliance after the fact — the system has to
+keep working through spikes, crashes, and network failures.
 
 ## Solution overview
 
@@ -27,8 +32,8 @@ Order API → [orders] → Risk Service → [orders-validated] → Matching Engi
 
 - **Order API** validates and accepts orders, returns immediately, streams status over WebSocket.
 - **Risk Service** rejects orders that breach per-client notional or velocity limits.
-- **Matching Engine** holds an in-memory, price/time-priority order book per symbol and matches
-  crossing orders.
+- **Matching Engine** holds an in-memory, price/time-priority order book per currency pair and
+  matches crossing orders.
 - **Execution Service** is the single writer of trade outcomes: persists the trade, updates order
   status, and appends to the off-heap trade journal.
 - **Price Feed Service** stands in for a real market data feed (none exists) and flags anomalous
@@ -53,9 +58,21 @@ Payment API → [payments] → Fraud Detection → [payments-validated] → Sett
   (`@RetryableTopic`, 1s→16s) before landing on a dead-letter topic.
 - **Reconciliation Service** checks every settled payment's ledger entries actually net to zero.
 
+Everything above moves money that starts and ends in a real client **account** — the actual
+"clients creating accounts" core of the platform. `Account` (`CHECKING`/`SAVINGS`/`FX_TRADING`)
+holds a real balance; deposits, withdrawals, internal transfers ("pay other users money," own
+domain — no saga needed, it's one atomic DB transaction), and FX conversion ("sell balance," at
+the live rate from the price feed) all mutate it directly. Loans originate against an account
+(crediting it with the principal), accrue simple daily interest on a schedule, and repay against
+it (interest first, then principal). Every one of these endpoints is ownership-checked: a client's
+JWT can only ever touch their own accounts, proven end-to-end (not just at the role-check layer) by
+an integration test against the real JWT filter chain. See
+[docs/ACCOUNTS.md](docs/ACCOUNTS.md) for the full detail.
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design,
 [docs/TRADING_SYSTEM.md](docs/TRADING_SYSTEM.md) for the order lifecycle and matching algorithm,
-and [docs/PAYMENT_SYSTEM.md](docs/PAYMENT_SYSTEM.md) for the payment lifecycle and saga in detail.
+[docs/PAYMENT_SYSTEM.md](docs/PAYMENT_SYSTEM.md) for the cross-bank payment lifecycle and saga, and
+[docs/ACCOUNTS.md](docs/ACCOUNTS.md) for accounts, transfers, conversion, and loans.
 
 ## Quick start
 
@@ -72,18 +89,35 @@ waits for `/actuator/health` to report `UP`. Once ready:
 # API docs
 open http://localhost:8080/v1/swagger-ui.html
 
-# Submit a sell, then a matching buy
+# Open two accounts for two clients
+curl -s -X POST http://localhost:8080/v1/accounts -H 'Content-Type: application/json' \
+  -d '{"clientId":"alice","accountType":"CHECKING","currency":"USD","openingBalance":1000.00}'
+curl -s -X POST http://localhost:8080/v1/accounts -H 'Content-Type: application/json' \
+  -d '{"clientId":"bob","accountType":"CHECKING","currency":"USD","openingBalance":0.00}'
+
+# Deposit, then transfer to another client (both at this bank — instant, no saga)
+curl -s -X POST http://localhost:8080/v1/accounts/{aliceAccountId}/deposit -H 'Content-Type: application/json' \
+  -d '{"amount":200.00}'
+curl -s -X POST http://localhost:8080/v1/transfers -H 'Content-Type: application/json' \
+  -d '{"fromAccountId":"{aliceAccountId}","toAccountId":"{bobAccountId}","amount":100.00}'
+
+# Take out a loan and check it
+curl -s -X POST http://localhost:8080/v1/loans -H 'Content-Type: application/json' \
+  -d '{"clientId":"alice","accountId":"{aliceAccountId}","principal":5000.00,"interestRateAnnualPercent":5.0}'
+curl -s http://localhost:8080/v1/loans/{loanId}
+
+# Submit a sell, then a matching buy on the FX desk
 curl -s -X POST http://localhost:8080/v1/orders -H 'Content-Type: application/json' \
-  -d '{"clientId":"seller-1","symbol":"AAPL","side":"SELL","quantity":10,"price":150.00}'
+  -d '{"clientId":"seller-1","currencyPair":"EUR/USD","side":"SELL","quantity":10,"price":1.08}'
 curl -s -X POST http://localhost:8080/v1/orders -H 'Content-Type: application/json' \
-  -d '{"clientId":"buyer-1","symbol":"AAPL","side":"BUY","quantity":10,"price":150.00}'
+  -d '{"clientId":"buyer-1","currencyPair":"EUR/USD","side":"BUY","quantity":10,"price":1.08}'
 
 # Check the resulting fill
 curl -s http://localhost:8080/v1/orders/{orderId}
 
-# Submit a payment and watch it settle
+# Submit a payment to another bank and watch it settle
 curl -s -X POST http://localhost:8080/v1/payments -H 'Content-Type: application/json' \
-  -d '{"clientId":"payer-1","amount":250.00,"idempotencyKey":"demo-1","country":"US"}'
+  -d '{"clientId":"payer-1","sourceAccountId":"{someAccountId}","amount":250.00,"idempotencyKey":"demo-1","country":"US"}'
 curl -s http://localhost:8080/v1/payments/{paymentId}
 ```
 
@@ -144,22 +178,25 @@ flowchart LR
 |---|---|
 | Order API | Validate, persist, publish, stream status |
 | Risk Service | Notional + order-velocity limit checks |
-| Matching Engine | Price/time-priority matching per symbol |
+| Matching Engine | Price/time-priority matching per currency pair |
 | Execution Service | Sole writer of trade + order-status truth |
 | Trade Journal | Immutable, off-heap, replayable audit log |
-| Price Feed Service | Synthetic ticks (stand-in for a real feed), anomaly detection |
-| Payment API | Idempotent intake, validate, publish |
+| Price Feed Service | Synthetic ticks (stand-in for a real feed), anomaly detection, FX rate lookup for conversion |
+| Payment API | Idempotent intake, validate, publish (cross-bank payments) |
 | Fraud Detection Service | Velocity / country-change / amount-anomaly rules |
 | Settlement Service | Saga orchestrator: reserve → ledger → clear → compensate |
 | Ledger Service | Immutable double-entry bookkeeping, reversal on compensation |
 | Notification Service | Retry with real backoff, DLQ on exhaustion, AI summary for failures |
 | Reconciliation Service | Ledger integrity check per settled payment |
+| Account Service | Open/lookup accounts, deposit, withdraw, FX conversion between own accounts |
+| Transfer Service | Same-bank transfers between clients (atomic, no saga) |
+| Loan Service | Origination, repayment (interest-first), scheduled interest accrual |
 
 ## Design tradeoffs
 
 | Decision | Why | Tradeoff accepted |
 |---|---|---|
-| Per-symbol synchronized order book instead of a wait-free multi-symbol structure | Correctness of price/time priority is non-negotiable; different symbols never contend | Matching for the *same* symbol is serialized, not lock-free |
+| Per-currency-pair synchronized order book instead of a wait-free multi-pair structure | Correctness of price/time priority is non-negotiable; different pairs never contend | Matching for the *same* pair is serialized, not lock-free |
 | Raw `KafkaConsumer` poll loop for the Matching Engine instead of `@KafkaListener` | Keeps the hot path free of listener-container overhead, matches the batch-poll pattern directly | More manual lifecycle code than a declarative listener |
 | Thread affinity (CPU pinning) implemented but disabled by default | Needs a native JNI library, not portable across every dev machine/container | Sub-5ms matching latency claim is unverified without it enabled and benchmarked |
 | Synthetic price feed instead of a real market data integration | No real feed exists for Phase 1 | Anomaly detection triggers on synthetic data, not real market events |
@@ -170,11 +207,13 @@ flowchart LR
 | Email/Slack are logging stand-ins that never fail | No real provider exists to fail against; a contrived failure condition would be worse than an honest stand-in | Retry/DLQ wiring is proven correct by unit test (exception propagation), not by an end-to-end failure in practice |
 | Reconciliation checks internal ledger integrity, not a real bank statement | No external bank feed exists | Catches "our own bookkeeping is wrong," not "the bank disagrees with us" — that's Phase 3 |
 | `dev` Spring profile disables JWT enforcement | Lets the API be exercised locally without a token-minting step | Must never be the active profile outside local development |
+| Ownership checks (`CallerPrincipal`) live in the service layer, resolved explicitly from the controller — not read from a static `SecurityContextHolder` inside services | Keeps services trivially unit-testable (construct a fake `CallerPrincipal`); `@PreAuthorize` alone only proves *some* client is calling, not that they own the specific resource | An extra parameter threaded through every client-facing service method, instead of an ambient lookup |
+| FX order execution doesn't move `Account.balance` | Wiring the matching engine into real settlement is a further follow-on beyond this pass's scope | An `FX_TRADING` account's balance reflects deposits/conversions/transfers, not fills from its own orders yet |
 
 ## Latency
 
 The spec's targets (order→Kafka <10ms, matching <5ms, p99 <100ms) describe what this design is
-*built for* — the lock-free-per-symbol book, virtual threads, and batched Kafka consumption all
+*built for* — the lock-free-per-currency-pair book, virtual threads, and batched Kafka consumption all
 exist for that reason. **They have not been load-tested.** Gatling load tests are a Phase 3 item;
 until then, treat the targets as design intent, not a measured SLA.
 
@@ -184,12 +223,14 @@ until then, treat the targets as design intent, not a measured SLA.
 |---|---|
 | Order/Payment API crashes after publish, before responding | Event already in Kafka; client retries — payments are idempotent on `idempotencyKey`, matching is idempotent on `orderId` |
 | Any consuming service crashes (Risk, Matching, Execution, Fraud, Settlement, Reconciliation) | Kafka retains the record; consumer resumes from last committed offset on restart, nothing is lost |
-| Kafka unavailable | Submission fails fast (publish error is logged); no in-memory fallback queue yet — see Roadmap |
+| Kafka unavailable | A failed publish is queued in a bounded in-memory fallback buffer (`KafkaEventPublisher`) and retried on a schedule — a single-instance safety net for a transient outage, not a durable store; queued events are lost on restart |
 | Postgres unavailable | Submission fails (write path); already-queued Kafka events are retried once Postgres recovers |
 | Bank clearing fails | Ledger entries reversed, payment marked `FAILED`, customer notified with the reason — see [docs/PAYMENT_SYSTEM.md](docs/PAYMENT_SYSTEM.md) |
+| A payment is flagged `UNDER_REVIEW` | Held until a `COMPLIANCE_OFFICER` calls `POST /v1/payments/{id}/approve` or `/reject` |
 | Notification delivery fails | Retried at 1s/2s/4s/8s/16s; exhausted retries land on `notifications-dlq`, recorded `DEAD_LETTERED` |
 | Gemini/Claude API unavailable or unset | Alerts and notifications still fire using the plain rule-based reason; AI enrichment is skipped, never required |
-| Redis unavailable | Price feed falls back to the last known seed price per symbol; trading itself doesn't depend on Redis |
+| Redis unavailable | Price feed falls back to the last known seed price per currency pair; trading itself doesn't depend on Redis; FX conversion fails with `RateUnavailableException` if no rate is cached |
+| A client's token is used against another client's account/payment/transfer/loan | `AccessDeniedException` → 403 — see [docs/ACCOUNTS.md](docs/ACCOUNTS.md#3-ownership-security) |
 
 ## API documentation
 
@@ -197,11 +238,16 @@ Swagger UI: `/v1/swagger-ui.html`. OpenAPI JSON: `/v1/api-docs`.
 
 ## Security
 
-- JWT bearer auth (HS256, roles `TRADER` / `ADMIN` / `AUDITOR` / `COMPLIANCE_OFFICER`) enforced
-  via `@PreAuthorize` on every endpoint, in every profile.
-- The `dev` profile additionally grants those roles to the anonymous principal and permits all
-  HTTP requests, so `@PreAuthorize` still runs the same code path as production — it just
-  doesn't require a token locally. **Never run `dev` outside local development.**
+- JWT bearer auth (HS256, roles `CLIENT` / `TRADER` / `ADMIN` / `AUDITOR` / `COMPLIANCE_OFFICER`)
+  enforced via `@PreAuthorize` on every endpoint, in every profile.
+- Role checks alone aren't enough for a bank: any `CLIENT` token passes `@PreAuthorize`, but that
+  only proves *someone* is a client, not that they own the specific account being read or acted on.
+  `CallerPrincipal` closes that gap — every account/payment/transfer/loan endpoint checks that the
+  caller's JWT identity matches the resource's `clientId` (staff roles may act across clients). See
+  [docs/ACCOUNTS.md §3](docs/ACCOUNTS.md#3-ownership-security).
+- The `dev` profile additionally grants every role to the anonymous principal and permits all HTTP
+  requests, so `@PreAuthorize` still runs the same code path as production — it just doesn't
+  require a token locally. **Never run `dev` outside local development.**
 - No secrets are committed. `JWT_SECRET`, `GEMINI_API_KEY`, and `CLAUDE_API_KEY` are environment
   variables with local-only placeholder defaults; production would source all three from GCP
   Secret Manager (Phase 3).
@@ -215,19 +261,28 @@ tracing, and alert rules are Phase 3.
 ## Test coverage — stated honestly
 
 Unit tests cover every service's business logic (mocked dependencies) plus the order-book
-matching algorithm directly. Two Testcontainers integration tests prove the full pipelines —
-order→trade, and payment→fraud-pass→settlement→ledger, including the compensation path via a
-deliberately-oversized payment — against real Kafka/Postgres/Redis. This is **not** literal 100%
-line coverage or a verified SonarQube grade — those require tooling this environment doesn't run.
-Known gaps: the Gemini/Claude APIs' success paths (mocking WebFlux's fluent client reliably is
-disproportionate to the payoff; the failure/fallback path *is* tested for both), `@PreAuthorize`
-enforcement itself (controller unit tests bypass Spring Security entirely by design), and the
-Notification retry mechanism's actual timing (proven by unit test that failures propagate
-correctly for `@RetryableTopic` to act on, not by a ~31-second end-to-end backoff observation).
+matching algorithm directly. Three Testcontainers integration tests prove the full pipelines —
+order→trade, payment→fraud-pass→settlement→ledger (including the compensation path via a
+deliberately-oversized payment), and the ownership-security check through the *real* JWT filter
+chain (`AccountSecurityIntegrationTest`: a client's token gets a genuine 403 reading another
+client's account) — against real Kafka/Postgres/Redis. This is **not** literal 100% line coverage
+or a verified SonarQube grade — those require tooling this environment doesn't run. Known gaps:
+the Gemini/Claude APIs' success paths (mocking WebFlux's fluent client reliably is disproportionate
+to the payoff; the failure/fallback path *is* tested for both), `@PreAuthorize` role enforcement
+itself (controller unit tests bypass Spring Security entirely by design — only the ownership-check
+layer on top of it is proven end-to-end), and the Notification retry mechanism's actual timing
+(proven by unit test that failures propagate correctly for `@RetryableTopic` to act on, not by a
+~31-second end-to-end backoff observation).
 
 ## Roadmap
 
-- **Phase 3**: Kubernetes + Helm, GCP Secret Manager/KMS, GitHub Actions deploy pipeline, Jaeger tracing, Grafana dashboards, Gatling load tests, BigQuery analytics streaming, in-memory Kafka-down fallback queue, real SendGrid/Slack/bank-gateway integrations, compliance-officer approval workflow for `UNDER_REVIEW` payments
+- **Done**: Kafka-down in-memory fallback queue, compliance-officer approval workflow for
+  `UNDER_REVIEW` payments, Kubernetes manifests + a Helm chart (verified against a local `kind`
+  cluster), the full retail-banking domain (accounts, deposits/withdrawals, internal transfers, FX
+  conversion, loans) with ownership-checked security.
+- **Remaining**: GCP Secret Manager/KMS, GitHub Actions deploy pipeline, Jaeger tracing, Grafana
+  dashboards, Gatling load tests, BigQuery analytics streaming, real SendGrid/Slack/bank-gateway
+  integrations.
 
 ## Contributing
 

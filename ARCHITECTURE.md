@@ -1,9 +1,12 @@
 # Architecture
 
-This document is the deep dive behind [README.md](README.md). It covers what's actually built —
-the real-time trading system (Phase 1) and the payment & notification system (Phase 2).
-Deployment/observability infrastructure (Kubernetes, Helm, GCP, Jaeger, Grafana, Gatling) is
-Phase 3, described only as scope since it doesn't exist yet.
+This document is the deep dive behind [README.md](README.md). It covers what's actually built: the
+retail banking core (accounts, deposits/withdrawals, internal transfers, FX conversion, loans —
+see §3a and [docs/ACCOUNTS.md](docs/ACCOUNTS.md)), the FX trading desk (Phase 1, §2), and the
+cross-bank payment & notification system (Phase 2, §3). Kubernetes manifests and a Helm chart
+exist and are verified against a local `kind` cluster (§9); GCP deployment, Jaeger tracing,
+Grafana dashboards, and Gatling load tests remain scope, described in §10 since they don't exist
+yet.
 
 ## 1. System architecture overview
 
@@ -41,7 +44,7 @@ The core design decision is **who owns what state, and who is allowed to write i
 
 ### Data flow (happy path)
 1. `POST /v1/orders` → `OrderServiceImpl.submitOrder()` persists `Order{status=PENDING}`,
-   publishes `OrderEvent` to `orders` (key = symbol, 10 partitions).
+   publishes `OrderEvent` to `orders` (key = currency pair, 10 partitions).
 2. `OrderEventConsumer` batch-consumes `orders`, hands each event to `RiskServiceImpl.evaluate()`.
 3. Risk checks (in order): open notional vs. `trading.risk.max-notional-per-client`, then order
    velocity vs. `trading.risk.max-orders-per-window` in `trading.risk.window-seconds` (in-memory
@@ -51,7 +54,7 @@ The core design decision is **who owns what state, and who is allowed to write i
 4. `MatchingEngineConsumerRunner` (a dedicated raw `KafkaConsumer`, not a Spring listener — see
    Pattern 3 below) polls `orders-validated` in batches, hands each event to
    `MatchingEngineServiceImpl.match()`.
-5. `MatchingEngineServiceImpl` looks up (or creates) the symbol's `OrderBook`, matches at
+5. `MatchingEngineServiceImpl` looks up (or creates) the currency pair's `OrderBook`, matches at
    price/time priority, and for every fill publishes a `TradeEvent` to `trades` — carrying the
    **resulting status of both orders** so the next stage never has to recompute fill state.
 6. `TradeEventConsumer` batch-consumes `trades` sequentially (not in parallel — a batch can
@@ -112,6 +115,42 @@ See the [Design tradeoffs table in README.md](README.md#design-tradeoffs) for th
 entries (saga orchestration choice, simulated bank clearing, logging notification stand-ins,
 internal-only reconciliation) alongside the trading ones.
 
+## 3a. Accounts, transfers, conversion & loans detail
+
+### Problem
+The trading and payment pipelines above both need somewhere real to move money from and to — a
+client's actual bank balance, not an abstract label — and a client needs to move money to other
+clients at this bank, convert between currencies, and borrow against their account, all while
+never being able to touch another client's money.
+
+### Solution
+See [docs/ACCOUNTS.md](docs/ACCOUNTS.md) for the full lifecycle, ownership-security model, and
+failure scenarios. The core design decisions:
+
+- `Account.balance` is the single source of truth for "how much money is here." Payments
+  (`LedgerServiceImpl`), transfers (`TransferServiceImpl`), deposits/withdrawals/conversion
+  (`AccountServiceImpl`), and loans (`LoanServiceImpl`) are the *only* writers, each inside one
+  `@Transactional` method — never a non-atomic read-then-write split across services.
+- `CallerPrincipal` ([security/CallerPrincipal.java](src/main/java/com/dcbate/tradingplatform/security/CallerPrincipal.java))
+  is resolved once at the controller boundary from the caller's JWT and passed explicitly into
+  services — not read from a static `SecurityContextHolder` inside them, so ownership checks stay
+  unit-testable without security-context mocking. `requireOwner()` throws `AccessDeniedException`
+  (403) unless the caller owns the resource or holds a staff role.
+- `TransferService` (same-bank) is a deliberately separate domain from `PaymentService`
+  (cross-bank): a transfer is one atomic DB transaction (no external system can fail after we
+  commit), while a payment needs the saga in §3 precisely because bank clearing is external and can
+  fail after our data is already written.
+- `AccountService.convert()` reuses the FX trading desk's price feed
+  (`PriceFeedService.currentPrice()`, §2) for a direct rate lookup — not the order-matching engine,
+  since converting your own balance isn't an order waiting to cross another client's.
+- `LoanService.accrueInterest()` is scheduled (`LoanInterestScheduler`, cron), not called from the
+  API — the same pattern as `ReconciliationScheduler` in §3. Its day-count interest math is a pure,
+  directly-unit-tested method, not verified by manipulating wall-clock time.
+
+### Tradeoffs
+See the [Design tradeoffs table in README.md](README.md#design-tradeoffs) for the ownership-check
+design and the explicit statement that FX order execution doesn't move `Account.balance` yet.
+
 ## 4. Low-latency patterns
 
 All six patterns from the spec, with what Phase 1 actually does:
@@ -120,13 +159,13 @@ All six patterns from the spec, with what Phase 1 actually does:
 handling; a dedicated `ExecutorService` (`VirtualThreadConfig.virtualThreadExecutor()`) for
 WebSocket broadcast fan-out (`OrderStreamHandler`) and for the Matching Engine's poll loop itself.
 
-**2. Lock-free-ish order book** — `ConcurrentHashMap<String, OrderBook>` for symbol lookup (truly
-lock-free: different symbols never block each other). Matching *within* a symbol is
-`synchronized` on that symbol's `OrderBook` instance — see
+**2. Lock-free-ish order book** — `ConcurrentHashMap<String, OrderBook>` for currency-pair lookup (truly
+lock-free: different currency pairs never block each other). Matching *within* a currency pair is
+`synchronized` on that currency pair's `OrderBook` instance — see
 [OrderBook.java](src/main/java/com/dcbate/tradingplatform/trading/service/matching/OrderBook.java).
-A genuinely wait-free single-symbol book (lock-free skip lists, CAS-based price levels) is a much
-larger undertaking than Phase 1's scope justifies; per-symbol locking already gives full
-cross-symbol parallelism, which is what horizontal throughput actually depends on.
+A genuinely wait-free single-pair book (lock-free skip lists, CAS-based price levels) is a much
+larger undertaking than Phase 1's scope justifies; per-currency-pair locking already gives full
+cross-pair parallelism, which is what horizontal throughput actually depends on.
 
 **3. Batch processing** — `RiskService` and `ExecutionService` consume via Spring Kafka's batch
 listener (`containerFactory=batchListenerFactory`, `AckMode.BATCH`). The Matching Engine goes
@@ -175,7 +214,7 @@ timing.
 
 Structured logging (`@Slf4j` everywhere), Spring Boot Actuator + Micrometer/Prometheus
 (`/actuator/prometheus`), a custom `MatchingEngineHealthIndicator` exposing live order-book depth,
-and a `price.anomalies` counter tagged by symbol. Jaeger tracing and Grafana dashboards are Phase 3.
+and a `price.anomalies` counter tagged by currency pair. Jaeger tracing and Grafana dashboards are Phase 3.
 
 ## 7. Testing strategy
 
@@ -191,28 +230,34 @@ and why.
 
 ## 8. Security & compliance
 
-JWT resource-server auth (HS256), `@PreAuthorize` role checks (`TRADER`/`ADMIN`/`AUDITOR`/
-`COMPLIANCE_OFFICER`) on every endpoint including the payment API, no secrets committed
-(`JWT_SECRET`/`GEMINI_API_KEY`/`CLAUDE_API_KEY` via env vars with local-only placeholders). GCP
-Secret Manager/KMS integration, full OAuth2 identity provider, and PCI/SOX audit tooling are
-Phase 3 — this repo's security posture is "correct primitives, not yet production-hardened."
+JWT resource-server auth (HS256), `@PreAuthorize` role checks (`CLIENT`/`TRADER`/`ADMIN`/`AUDITOR`/
+`COMPLIANCE_OFFICER`) on every endpoint including the payment and account APIs, no secrets
+committed (`JWT_SECRET`/`GEMINI_API_KEY`/`CLAUDE_API_KEY` via env vars with local-only
+placeholders). On top of role checks, every account/payment/transfer/loan endpoint enforces
+**object-level ownership** via `CallerPrincipal` (§3a) — a `CLIENT` token can never see or move
+another client's money, proven end-to-end by `AccountSecurityIntegrationTest` against the real (not
+`dev`) JWT filter chain. GCP Secret Manager/KMS integration, full OAuth2 identity provider, and
+PCI/SOX audit tooling remain scope — this repo's security posture is "correct primitives with real
+object-level authorization, not yet production-hardened at the infrastructure layer."
 
 ## 9. Deployment & operations
 
 Multi-stage `docker/Dockerfile` (Alpine, non-root user, healthcheck), `docker/docker-compose.yml`
 for local Postgres/Redis/Kafka/app, and a `.github/workflows/ci.yml` that runs `mvn verify` and
-builds the Docker image on every push. Kubernetes manifests, Helm charts, GCP deployment, and a
-production CI/CD promotion pipeline are Phase 3.
+builds the Docker image on every push. `k8s/` holds production-shaped raw manifests (assume
+external managed Postgres/Redis/Kafka); `helm/trading-platform/` is the actually-deployable/testable
+chart, with a `devDependencies.enabled` toggle that spins up throwaway single-replica
+Postgres/Redis/Kafka for local testing — verified end to end against a local `kind` cluster
+(all pods `Running`, liveness/readiness probes reporting `UP`). GCP deployment and a production
+CI/CD promotion pipeline remain scope.
 
 ## 10. Future improvements
 
-- In-memory (or Redis-backed) fallback queue for order/payment submission when Kafka is down, per
-  the original spec's error-handling tables — not implemented; today a Kafka outage fails
-  submission outright rather than degrading gracefully.
 - Distribute `OrderVelocityTracker`/`PaymentVelocityTracker` via Redis so velocity limits hold
   under multiple service instances (today correct only for a single instance each).
 - Real SendGrid/Slack/bank-gateway integrations, replacing the logging/simulated stand-ins.
-- A compliance-officer approval endpoint for `UNDER_REVIEW` payments, closing the loop the fraud
-  spec implies ("Blocks or requires OTP") but Phase 2 doesn't implement.
+- Wire FX order execution (the matching engine) into real `Account.balance` movement — today only
+  payments, transfers, deposits/withdrawals, and conversion touch it (§3a).
 - Benchmark thread affinity and Chronicle Queue against the spec's latency targets — targets
-  are design intent until Gatling load tests exist (Phase 3).
+  are design intent until Gatling load tests exist.
+- Jaeger tracing, Grafana dashboards, and GCP Secret Manager/KMS integration.

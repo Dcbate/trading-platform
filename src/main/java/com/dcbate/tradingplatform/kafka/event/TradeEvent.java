@@ -13,7 +13,7 @@ public record TradeEvent(
         UUID tradeId,
         UUID buyOrderId,
         UUID sellOrderId,
-        String symbol,
+        String currencyPair,
         BigDecimal quantity,
         BigDecimal price,
         OrderStatus buyOrderStatus,

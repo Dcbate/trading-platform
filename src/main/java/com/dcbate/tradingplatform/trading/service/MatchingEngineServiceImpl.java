@@ -20,8 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * The matching core (Low-Latency Pattern 2). One {@link OrderBook} per symbol, looked up through
- * a {@link ConcurrentHashMap} so unrelated symbols never block each other; matching itself is
+ * The matching core (Low-Latency Pattern 2). One {@link OrderBook} per currencyPair, looked up through
+ * a {@link ConcurrentHashMap} so unrelated currencyPairs never block each other; matching itself is
  * synchronized per-book (see {@link OrderBook}) to keep price/time priority correct.
  */
 @Slf4j
@@ -37,7 +37,7 @@ public class MatchingEngineServiceImpl implements MatchingEngineService {
 
     @Override
     public List<TradeEvent> match(OrderValidatedEvent event) {
-        OrderBook book = books.computeIfAbsent(event.symbol(), symbol -> new OrderBook());
+        OrderBook book = books.computeIfAbsent(event.currencyPair(), currencyPair -> new OrderBook());
         OrderBookEntry incoming = new OrderBookEntry(
                 event.orderId(),
                 event.clientId(),
@@ -47,12 +47,12 @@ public class MatchingEngineServiceImpl implements MatchingEngineService {
                 sequenceGenerator.incrementAndGet());
 
         List<Match> matches = book.match(incoming);
-        List<TradeEvent> tradeEvents = matches.stream().map(m -> toTradeEvent(m, event.symbol())).toList();
-        tradeEvents.forEach(trade -> kafkaEventPublisher.publish(topics.trades(), trade.symbol(), trade));
+        List<TradeEvent> tradeEvents = matches.stream().map(m -> toTradeEvent(m, event.currencyPair())).toList();
+        tradeEvents.forEach(trade -> kafkaEventPublisher.publish(topics.trades(), trade.currencyPair(), trade));
 
         log.info(
-                "Matched orderId={}, symbol={}, fills={}, remainingQty={}",
-                event.orderId(), event.symbol(), matches.size(), incoming.getRemainingQuantity());
+                "Matched orderId={}, currencyPair={}, fills={}, remainingQty={}",
+                event.orderId(), event.currencyPair(), matches.size(), incoming.getRemainingQuantity());
 
         return tradeEvents;
     }
@@ -62,7 +62,7 @@ public class MatchingEngineServiceImpl implements MatchingEngineService {
         return books.values().stream().mapToInt(OrderBook::restingOrderCount).sum();
     }
 
-    private TradeEvent toTradeEvent(Match match, String symbol) {
+    private TradeEvent toTradeEvent(Match match, String currencyPair) {
         OrderBookEntry buyEntry = match.incoming().getSide() == OrderSide.BUY ? match.incoming() : match.resting();
         OrderBookEntry sellEntry = match.incoming().getSide() == OrderSide.SELL ? match.incoming() : match.resting();
 
@@ -70,7 +70,7 @@ public class MatchingEngineServiceImpl implements MatchingEngineService {
                 UUID.randomUUID(),
                 buyEntry.getOrderId(),
                 sellEntry.getOrderId(),
-                symbol,
+                currencyPair,
                 match.quantity(),
                 match.price(),
                 statusFor(buyEntry),

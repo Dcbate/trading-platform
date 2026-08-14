@@ -33,7 +33,7 @@ public class Trade {
     private UUID sellOrderId;
 
     @Column(nullable = false)
-    private String symbol;
+    private String currencyPair;
 
     @Column(nullable = false)
     private BigDecimal quantity;

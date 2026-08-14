@@ -11,7 +11,7 @@ import java.util.UUID;
 public record OrderResponse(
         UUID orderId,
         String clientId,
-        String symbol,
+        String currencyPair,
         OrderSide side,
         BigDecimal quantity,
         BigDecimal price,
@@ -23,7 +23,7 @@ public record OrderResponse(
         return new OrderResponse(
                 order.getOrderId(),
                 order.getClientId(),
-                order.getSymbol(),
+                order.getCurrencyPair(),
                 order.getSide(),
                 order.getQuantity(),
                 order.getPrice(),

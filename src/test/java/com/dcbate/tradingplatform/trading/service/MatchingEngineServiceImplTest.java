@@ -39,7 +39,7 @@ class MatchingEngineServiceImplTest {
     }
 
     private OrderValidatedEvent order(OrderSide side, String price, String quantity) {
-        return new OrderValidatedEvent(UUID.randomUUID(), "client-1", "AAPL", side, new BigDecimal(quantity), new BigDecimal(price), Instant.now());
+        return new OrderValidatedEvent(UUID.randomUUID(), "client-1", "EUR/USD", side, new BigDecimal(quantity), new BigDecimal(price), Instant.now());
     }
 
     @Test
@@ -60,7 +60,7 @@ class MatchingEngineServiceImplTest {
         TradeEvent trade = trades.get(0);
         assertThat(trade.buyOrderStatus()).isEqualTo(OrderStatus.FILLED);
         assertThat(trade.sellOrderStatus()).isEqualTo(OrderStatus.FILLED);
-        verify(kafkaEventPublisher).publish(eq("trades"), eq("AAPL"), any(TradeEvent.class));
+        verify(kafkaEventPublisher).publish(eq("trades"), eq("EUR/USD"), any(TradeEvent.class));
     }
 
     @Test

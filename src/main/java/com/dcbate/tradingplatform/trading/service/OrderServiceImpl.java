@@ -32,7 +32,7 @@ public class OrderServiceImpl implements OrderService {
         Order order = Order.builder()
                 .orderId(UUID.randomUUID())
                 .clientId(request.clientId())
-                .symbol(request.symbol())
+                .currencyPair(request.currencyPair())
                 .side(request.side())
                 .quantity(request.quantity())
                 .price(request.price())
@@ -44,18 +44,18 @@ public class OrderServiceImpl implements OrderService {
 
         kafkaEventPublisher.publish(
                 topics.orders(),
-                saved.getSymbol(),
+                saved.getCurrencyPair(),
                 new OrderEvent(
                         saved.getOrderId(),
                         saved.getClientId(),
-                        saved.getSymbol(),
+                        saved.getCurrencyPair(),
                         saved.getSide(),
                         saved.getQuantity(),
                         saved.getPrice(),
                         saved.getCreatedAt()));
 
-        log.info("Order accepted: orderId={}, clientId={}, symbol={}, side={}",
-                saved.getOrderId(), saved.getClientId(), saved.getSymbol(), saved.getSide());
+        log.info("Order accepted: orderId={}, clientId={}, currencyPair={}, side={}",
+                saved.getOrderId(), saved.getClientId(), saved.getCurrencyPair(), saved.getSide());
 
         return OrderResponse.from(saved);
     }

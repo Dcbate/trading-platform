@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Stands in for a real market data feed (none exists for Phase 1): generates a bounded random
- * walk per symbol, caches the latest price in Redis (TTL 1 minute), publishes to Kafka, and
+ * walk per currencyPair, caches the latest price in Redis (TTL 1 minute), publishes to Kafka, and
  * flags moves beyond the configured threshold via {@link AnomalyDetector}.
  */
 @Slf4j
@@ -31,12 +31,12 @@ import org.springframework.stereotype.Service;
 public class PriceFeedServiceImpl implements PriceFeedService {
 
     private static final Map<String, BigDecimal> SEED_PRICES = Map.of(
-            "AAPL", new BigDecimal("150.00"),
-            "GOOG", new BigDecimal("140.00"),
-            "TSLA", new BigDecimal("250.00"),
-            "MSFT", new BigDecimal("420.00"),
-            "AMZN", new BigDecimal("180.00"));
-    private static final BigDecimal DEFAULT_SEED_PRICE = new BigDecimal("100.00");
+            "EUR/USD", new BigDecimal("1.0800"),
+            "GBP/USD", new BigDecimal("1.2700"),
+            "USD/JPY", new BigDecimal("149.50"),
+            "USD/CHF", new BigDecimal("0.8800"),
+            "AUD/USD", new BigDecimal("0.6600"));
+    private static final BigDecimal DEFAULT_SEED_PRICE = new BigDecimal("1.0000");
     private static final Duration CACHE_TTL = Duration.ofMinutes(1);
     private static final String CACHE_KEY_PREFIX = "price:";
     private static final double NORMAL_TICK_MOVE_FRACTION = 0.02;
@@ -51,13 +51,13 @@ public class PriceFeedServiceImpl implements PriceFeedService {
     private final MeterRegistry meterRegistry;
 
     @Override
-    public void publishTick(String symbol) {
-        BigDecimal previous = readCachedPrice(symbol).orElseGet(() -> SEED_PRICES.getOrDefault(symbol, DEFAULT_SEED_PRICE));
+    public void publishTick(String currencyPair) {
+        BigDecimal previous = readCachedPrice(currencyPair).orElseGet(() -> SEED_PRICES.getOrDefault(currencyPair, DEFAULT_SEED_PRICE));
         BigDecimal next = randomWalk(previous);
 
-        kafkaEventPublisher.publish(topics.prices(), symbol, new PriceUpdateEvent(symbol, next, Instant.now()));
-        cachePrice(symbol, next);
-        checkAnomaly(symbol, previous, next);
+        kafkaEventPublisher.publish(topics.prices(), currencyPair, new PriceUpdateEvent(currencyPair, next, Instant.now()));
+        cachePrice(currencyPair, next);
+        checkAnomaly(currencyPair, previous, next);
     }
 
     private BigDecimal randomWalk(BigDecimal previous) {
@@ -66,18 +66,18 @@ public class PriceFeedServiceImpl implements PriceFeedService {
         // spike — otherwise the anomaly threshold below could never actually be reached.
         double maxMoveFraction = random.nextDouble() < SPIKE_PROBABILITY ? SPIKE_TICK_MOVE_FRACTION : NORMAL_TICK_MOVE_FRACTION;
         double pctMove = (random.nextDouble() - 0.5) * 2 * maxMoveFraction;
-        BigDecimal next = previous.add(previous.multiply(BigDecimal.valueOf(pctMove))).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal next = previous.add(previous.multiply(BigDecimal.valueOf(pctMove))).setScale(4, RoundingMode.HALF_UP);
         return next.signum() > 0 ? next : previous;
     }
 
-    private void checkAnomaly(String symbol, BigDecimal previous, BigDecimal next) {
+    private void checkAnomaly(String currencyPair, BigDecimal previous, BigDecimal next) {
         if (!isAnomalousMove(previous, next)) {
             return;
         }
         BigDecimal pctChange = percentChange(previous, next);
-        meterRegistry.counter("price.anomalies", "symbol", symbol).increment();
-        String description = "%s moved %s%% from %s to %s in one tick".formatted(symbol, pctChange, previous, next);
-        AnomalyResult result = anomalyDetector.explain(new AnomalyContext("price:" + symbol, description));
+        meterRegistry.counter("price.anomalies", "currencyPair", currencyPair).increment();
+        String description = "%s moved %s%% from %s to %s in one tick".formatted(currencyPair, pctChange, previous, next);
+        AnomalyResult result = anomalyDetector.explain(new AnomalyContext("price:" + currencyPair, description));
         log.warn("Price anomaly detected: {} (aiEnriched={})", result.explanation(), result.aiEnriched());
     }
 
@@ -93,16 +93,16 @@ public class PriceFeedServiceImpl implements PriceFeedService {
     }
 
     @Override
-    public Optional<BigDecimal> currentPrice(String symbol) {
-        return readCachedPrice(symbol);
+    public Optional<BigDecimal> currentPrice(String currencyPair) {
+        return readCachedPrice(currencyPair);
     }
 
-    private Optional<BigDecimal> readCachedPrice(String symbol) {
-        String cached = redisTemplate.opsForValue().get(CACHE_KEY_PREFIX + symbol);
+    private Optional<BigDecimal> readCachedPrice(String currencyPair) {
+        String cached = redisTemplate.opsForValue().get(CACHE_KEY_PREFIX + currencyPair);
         return Optional.ofNullable(cached).map(BigDecimal::new);
     }
 
-    private void cachePrice(String symbol, BigDecimal price) {
-        redisTemplate.opsForValue().set(CACHE_KEY_PREFIX + symbol, price.toPlainString(), CACHE_TTL);
+    private void cachePrice(String currencyPair, BigDecimal price) {
+        redisTemplate.opsForValue().set(CACHE_KEY_PREFIX + currencyPair, price.toPlainString(), CACHE_TTL);
     }
 }

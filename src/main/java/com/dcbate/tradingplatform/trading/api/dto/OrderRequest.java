@@ -9,7 +9,7 @@ import java.math.BigDecimal;
 /** Inbound order submission — validated, then mapped to an {@code Order} by {@code OrderServiceImpl}. */
 public record OrderRequest(
         @NotBlank String clientId,
-        @NotBlank String symbol,
+        @NotBlank String currencyPair,
         @NotNull OrderSide side,
         @NotNull @DecimalMin(value = "0.00000001", message = "quantity must be positive") BigDecimal quantity,
         @NotNull @DecimalMin(value = "0.00000001", message = "price must be positive") BigDecimal price) {

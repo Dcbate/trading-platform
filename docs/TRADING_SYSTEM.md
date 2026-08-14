@@ -1,7 +1,10 @@
-# Trading System
+# FX Trading Desk
 
-Deep dive into the order lifecycle and matching algorithm. For the broader system design, see
-[ARCHITECTURE.md](../ARCHITECTURE.md).
+Deep dive into the order lifecycle and matching algorithm behind the bank's FX trading desk — a
+real bank function, funded by a client's `FX_TRADING` account
+([docs/ACCOUNTS.md](ACCOUNTS.md#2-account-types)). A bank's FX desk takes buy/sell orders on
+currency pairs and matches them in an order book, which is exactly what the mechanics below do.
+For the broader system design, see [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## 1. Order lifecycle
 
@@ -14,7 +17,7 @@ PENDING → VALIDATED → PARTIALLY_FILLED → FILLED
 - `PENDING`: written by `OrderService` the instant the order is accepted, before any risk or
   matching has happened. `GET /v1/orders/{id}` can return this immediately after `201`.
 - `VALIDATED`: written by `RiskService` once both limit checks pass. An order can sit here
-  briefly if its symbol's book has no crossing counter-order yet — it's now resting in the
+  briefly if its currency pair's book has no crossing counter-order yet — it's now resting in the
   Matching Engine's in-memory book, invisible to Postgres until it fills.
 - `PARTIALLY_FILLED` / `FILLED`: written by `ExecutionService` only, driven by the
   `buyOrderStatus`/`sellOrderStatus` fields on the `TradeEvent` the Matching Engine computed.
@@ -25,7 +28,7 @@ An order that rests in the book (partially or fully unfilled) stays `VALIDATED` 
 
 ## 2. Matching algorithm
 
-Each symbol gets its own [`OrderBook`](../src/main/java/com/dcbate/tradingplatform/trading/service/matching/OrderBook.java):
+Each currency pair gets its own [`OrderBook`](../src/main/java/com/dcbate/tradingplatform/trading/service/matching/OrderBook.java):
 two `TreeMap`s (buys ordered highest-price-first, sells lowest-price-first), each price level a
 FIFO deque.
 
@@ -51,14 +54,14 @@ Price/time priority in practice:
 
 ## 3. Example walkthrough
 
-1. Seller posts `SELL 10 AAPL @ 150.00` → book has no buys → it rests: `sells[150.00] = [seller]`.
-2. Buyer posts `BUY 10 AAPL @ 150.00` → crosses (`150.00 >= 150.00`) → matches the full 10 against
-   the resting sell at `150.00` → both orders fully filled, book empty again.
-3. `TradeEvent{quantity=10, price=150.00, buyOrderStatus=FILLED, sellOrderStatus=FILLED}` →
+1. Seller posts `SELL 10 EUR/USD @ 1.0800` → book has no buys → it rests: `sells[1.0800] = [seller]`.
+2. Buyer posts `BUY 10 EUR/USD @ 1.0800` → crosses (`1.0800 >= 1.0800`) → matches the full 10 against
+   the resting sell at `1.0800` → both orders fully filled, book empty again.
+3. `TradeEvent{quantity=10, price=1.0800, buyOrderStatus=FILLED, sellOrderStatus=FILLED}` →
    `ExecutionService` persists the trade and flips both `Order.status` to `FILLED`.
 
-A partial-fill variant: if the seller had only posted 4 shares, the trade fills 4, the seller's
-order is `FILLED`, and the buyer's remaining 6 shares rest in the book as `PARTIALLY_FILLED`,
+A partial-fill variant: if the seller had only posted 4 units, the trade fills 4, the seller's
+order is `FILLED`, and the buyer's remaining 6 units rest in the book as `PARTIALLY_FILLED`,
 waiting for the next matching sell.
 
 ## 4. Risk scenarios

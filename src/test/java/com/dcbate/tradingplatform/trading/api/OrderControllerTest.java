@@ -48,14 +48,14 @@ class OrderControllerTest {
     }
 
     private OrderRequest validRequest() {
-        return new OrderRequest("client-1", "AAPL", OrderSide.BUY, new BigDecimal("10"), new BigDecimal("150.00"));
+        return new OrderRequest("client-1", "EUR/USD", OrderSide.BUY, new BigDecimal("10"), new BigDecimal("150.00"));
     }
 
     @Test
     void submitOrderReturnsCreatedWithLocationHeader() throws Exception {
         UUID orderId = UUID.randomUUID();
         OrderResponse response = new OrderResponse(
-                orderId, "client-1", "AAPL", OrderSide.BUY, new BigDecimal("10"), new BigDecimal("150.00"),
+                orderId, "client-1", "EUR/USD", OrderSide.BUY, new BigDecimal("10"), new BigDecimal("150.00"),
                 OrderStatus.PENDING, Instant.now(), null);
         when(orderService.submitOrder(any())).thenReturn(response);
 
@@ -69,7 +69,7 @@ class OrderControllerTest {
 
     @Test
     void submitOrderRejectsInvalidPayload() throws Exception {
-        String invalidPayload = "{\"clientId\":\"\",\"symbol\":\"AAPL\",\"side\":\"BUY\",\"quantity\":-1,\"price\":150.00}";
+        String invalidPayload = "{\"clientId\":\"\",\"currencyPair\":\"EUR/USD\",\"side\":\"BUY\",\"quantity\":-1,\"price\":150.00}";
 
         mockMvc.perform(post("/v1/orders").contentType(MediaType.APPLICATION_JSON).content(invalidPayload))
                 .andExpect(status().isBadRequest());

@@ -74,9 +74,9 @@ class OrderFlowIntegrationTest {
 
     @Test
     void crossingOrdersProduceAFilledTradeEndToEnd() {
-        String symbol = "E2ETEST";
-        UUID sellOrderId = submitOrder(new OrderRequest("seller-1", symbol, OrderSide.SELL, new BigDecimal("5"), new BigDecimal("42.00")));
-        UUID buyOrderId = submitOrder(new OrderRequest("buyer-1", symbol, OrderSide.BUY, new BigDecimal("5"), new BigDecimal("42.00")));
+        String currencyPair = "E2ETEST";
+        UUID sellOrderId = submitOrder(new OrderRequest("seller-1", currencyPair, OrderSide.SELL, new BigDecimal("5"), new BigDecimal("42.00")));
+        UUID buyOrderId = submitOrder(new OrderRequest("buyer-1", currencyPair, OrderSide.BUY, new BigDecimal("5"), new BigDecimal("42.00")));
 
         OrderResponse filledBuy = awaitStatus(buyOrderId, OrderStatus.FILLED);
         OrderResponse filledSell = awaitStatus(sellOrderId, OrderStatus.FILLED);

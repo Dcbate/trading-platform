@@ -36,7 +36,7 @@ public class Order {
     private String clientId;
 
     @Column(nullable = false)
-    private String symbol;
+    private String currencyPair;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

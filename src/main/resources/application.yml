@@ -80,7 +80,7 @@ chronicle:
     path: ${CHRONICLE_PATH:./chronicle-data/trades}
 
 trading:
-  symbols: AAPL,GOOG,TSLA,MSFT,AMZN
+  currency-pairs: EUR/USD,GBP/USD,USD/JPY,USD/CHF,AUD/USD
   price-feed:
     tick-interval-ms: 2000
     anomaly-threshold-percent: 10

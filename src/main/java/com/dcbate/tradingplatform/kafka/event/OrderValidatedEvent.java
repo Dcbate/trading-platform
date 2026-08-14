@@ -9,7 +9,7 @@ import java.util.UUID;
 public record OrderValidatedEvent(
         UUID orderId,
         String clientId,
-        String symbol,
+        String currencyPair,
         OrderSide side,
         BigDecimal quantity,
         BigDecimal price,

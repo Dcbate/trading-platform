@@ -50,19 +50,19 @@ class PriceFeedServiceImplTest {
                 "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
                 "account-activity", "transfers", "loans");
         TradingProperties tradingProperties =
-                new TradingProperties(List.of("AAPL"), new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
+                new TradingProperties(List.of("EUR/USD"), new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
         priceFeedService = new PriceFeedServiceImpl(
                 redisTemplate, kafkaEventPublisher, topics, tradingProperties, anomalyDetector, new SimpleMeterRegistry());
     }
 
     @Test
     void publishesATickAndCachesTheNewPrice() {
-        when(valueOperations.get("price:AAPL")).thenReturn(null);
+        when(valueOperations.get("price:EUR/USD")).thenReturn(null);
 
-        priceFeedService.publishTick("AAPL");
+        priceFeedService.publishTick("EUR/USD");
 
-        verify(kafkaEventPublisher).publish(eq("prices"), eq("AAPL"), any(PriceUpdateEvent.class));
-        verify(valueOperations).set(eq("price:AAPL"), anyString(), eq(Duration.ofMinutes(1)));
+        verify(kafkaEventPublisher).publish(eq("prices"), eq("EUR/USD"), any(PriceUpdateEvent.class));
+        verify(valueOperations).set(eq("price:EUR/USD"), anyString(), eq(Duration.ofMinutes(1)));
     }
 
     @Test

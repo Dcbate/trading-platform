@@ -57,7 +57,6 @@ class TransferServiceImplTest {
                 "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
                 "account-activity", "transfers", "loans");
         transferService = new TransferServiceImpl(transferRepository, accountRepository, kafkaEventPublisher, topics);
-        when(transferRepository.save(any(Transfer.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
     private Account account(UUID accountId, String clientId, String currency, BigDecimal balance) {
@@ -72,6 +71,7 @@ class TransferServiceImplTest {
         when(accountRepository.findById(fromAccountId)).thenReturn(Optional.of(account(fromAccountId, "client-1", "USD", new BigDecimal("100.00"))));
         when(accountRepository.findById(toAccountId)).thenReturn(Optional.of(account(toAccountId, "client-2", "USD", new BigDecimal("10.00"))));
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(transferRepository.save(any(Transfer.class))).thenAnswer(inv -> inv.getArgument(0));
 
         TransferResponse response = transferService.transfer(
                 new TransferRequest(fromAccountId, toAccountId, new BigDecimal("40.00")), sender);

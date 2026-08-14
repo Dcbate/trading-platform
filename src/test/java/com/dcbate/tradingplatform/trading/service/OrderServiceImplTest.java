@@ -48,7 +48,7 @@ class OrderServiceImplTest {
     }
 
     private OrderRequest request() {
-        return new OrderRequest("client-1", "AAPL", OrderSide.BUY, new BigDecimal("10"), new BigDecimal("150.00"));
+        return new OrderRequest("client-1", "EUR/USD", OrderSide.BUY, new BigDecimal("10"), new BigDecimal("150.00"));
     }
 
     @Test
@@ -58,8 +58,8 @@ class OrderServiceImplTest {
         OrderResponse response = orderService.submitOrder(request());
 
         assertThat(response.status()).isEqualTo(OrderStatus.PENDING);
-        assertThat(response.symbol()).isEqualTo("AAPL");
-        verify(kafkaEventPublisher).publish(eq("orders"), eq("AAPL"), any(OrderEvent.class));
+        assertThat(response.currencyPair()).isEqualTo("EUR/USD");
+        verify(kafkaEventPublisher).publish(eq("orders"), eq("EUR/USD"), any(OrderEvent.class));
     }
 
     @Test
@@ -69,14 +69,14 @@ class OrderServiceImplTest {
 
         OrderResponse response = orderService.submitOrder(request());
 
-        verify(kafkaEventPublisher).publish(eq("orders"), eq("AAPL"), eventCaptor.capture());
+        verify(kafkaEventPublisher).publish(eq("orders"), eq("EUR/USD"), eventCaptor.capture());
         assertThat(eventCaptor.getValue().orderId()).isEqualTo(response.orderId());
     }
 
     @Test
     void getOrderReturnsMappedResponseWhenFound() {
         UUID orderId = UUID.randomUUID();
-        Order order = Order.builder().orderId(orderId).clientId("client-1").symbol("AAPL")
+        Order order = Order.builder().orderId(orderId).clientId("client-1").currencyPair("EUR/USD")
                 .side(OrderSide.BUY).quantity(new BigDecimal("10")).price(new BigDecimal("150.00"))
                 .status(OrderStatus.FILLED).build();
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));

@@ -1,7 +1,17 @@
 # Payment System
 
 Deep dive into the payment lifecycle, the settlement saga, and the fraud/reconciliation rules.
-For the broader system design, see [ARCHITECTURE.md](../ARCHITECTURE.md).
+This is the **cross-bank** path — "pay other banks money." For paying another client at *this*
+bank (instant, no saga) see [docs/ACCOUNTS.md §5](ACCOUNTS.md#5-internal-transfers--pay-other-users-money);
+for the broader system design, see [ARCHITECTURE.md](../ARCHITECTURE.md).
+
+Every payment now debits a real client `Account` (see [docs/ACCOUNTS.md](ACCOUNTS.md)):
+`PaymentRequest.sourceAccountId` must reference an `ACTIVE` account owned by `clientId` with a
+sufficient balance, checked at submission (`PaymentServiceImpl`) and re-checked defensively at
+ledger-booking time (`LedgerServiceImpl`) — a point-in-time check, not a fund hold, so two
+concurrent payments from the same account could theoretically both pass the first check before
+either reaches the second; that second check is what actually prevents an overdraft. Insufficient
+funds is a 409 (`InsufficientFundsException`) before anything reaches Kafka.
 
 ## 1. Payment lifecycle
 
@@ -10,14 +20,17 @@ PENDING → RESERVED → SETTLED
    │           │
    │           └──→ FAILED   (bank clearing failed → compensated)
    │
-   └──→ UNDER_REVIEW  (fraud: amount anomaly — held, no manual-approval endpoint in Phase 2)
+   └──→ UNDER_REVIEW  (fraud: amount anomaly — held for compliance-officer approve/reject)
    └──→ BLOCKED        (fraud: velocity or country-change — terminal)
 ```
 
 - `PENDING`: written by `PaymentService` the instant the payment is accepted, before fraud
   checks or settlement. `GET /v1/payments/{id}` can return this immediately after `202`.
-- `UNDER_REVIEW` / `BLOCKED`: written by `FraudDetectionService`. Both are terminal in Phase 2 —
-  there's no compliance-officer approval workflow to move a reviewed payment forward (Phase 3).
+- `UNDER_REVIEW`: written by `FraudDetectionService`, held until a `COMPLIANCE_OFFICER` calls
+  `POST /v1/payments/{id}/approve` (releases the withheld `PaymentValidatedEvent`, settlement
+  proceeds) or `/reject` (moves to terminal `BLOCKED`).
+- `BLOCKED`: written by `FraudDetectionService` directly (velocity/country-change) or via a
+  compliance rejection. Terminal either way.
 - `RESERVED`: written by `SettlementService` the moment the saga starts, before the ledger or
   bank-clearing steps run.
 - `SETTLED` / `FAILED`: written by `SettlementService` at the end of the saga, depending on

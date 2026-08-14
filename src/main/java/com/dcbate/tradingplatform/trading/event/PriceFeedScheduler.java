@@ -17,14 +17,14 @@ public class PriceFeedScheduler {
 
     @Scheduled(fixedRateString = "${trading.price-feed.tick-interval-ms}")
     public void tick() {
-        tradingProperties.symbols().forEach(this::publishSafely);
+        tradingProperties.currencyPairs().forEach(this::publishSafely);
     }
 
-    private void publishSafely(String symbol) {
+    private void publishSafely(String currencyPair) {
         try {
-            priceFeedService.publishTick(symbol);
+            priceFeedService.publishTick(currencyPair);
         } catch (Exception e) {
-            log.error("Failed to publish price tick for symbol={}: {}", symbol, e.getMessage());
+            log.error("Failed to publish price tick for currencyPair={}: {}", currencyPair, e.getMessage());
         }
     }
 }
