@@ -110,6 +110,11 @@ payment:
     auto-resolve-threshold: 1.00
     schedule-cron: "0 0 2 * * *"
 
+loan:
+  interest:
+    # Daily simple-interest accrual for all ACTIVE loans — see LoanServiceImpl.accrueInterest().
+    accrual-cron: "0 0 3 * * *"
+
 claude:
   api-key: ${CLAUDE_API_KEY:placeholder-set-me}
   api-url: https://api.anthropic.com
@@ -130,6 +135,9 @@ kafka:
     fraud-alerts: fraud-alerts
     notifications: notifications
     notifications-dlq: notifications-dlq
+    account-activity: account-activity
+    transfers: transfers
+    loans: loans
   fallback-queue:
     # Single-instance, in-memory safety net for a transient Kafka outage — see
     # KafkaEventPublisher's javadoc. Not a durable store.

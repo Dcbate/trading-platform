@@ -7,7 +7,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.dcbate.tradingplatform.account.repository.AccountRepository;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
+import com.dcbate.tradingplatform.domain.Account;
+import com.dcbate.tradingplatform.domain.AccountStatus;
+import com.dcbate.tradingplatform.domain.AccountType;
 import com.dcbate.tradingplatform.domain.LedgerEntry;
 import com.dcbate.tradingplatform.domain.LedgerEntryType;
 import com.dcbate.tradingplatform.domain.Payment;
@@ -18,6 +22,7 @@ import com.dcbate.tradingplatform.payment.repository.LedgerEntryRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,29 +38,45 @@ class LedgerServiceImplTest {
     private LedgerEntryRepository ledgerEntryRepository;
 
     @Mock
+    private AccountRepository accountRepository;
+
+    @Mock
     private KafkaEventPublisher kafkaEventPublisher;
 
     private LedgerServiceImpl ledgerService;
+
+    private final UUID sourceAccountId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
         KafkaTopicsProperties topics = new KafkaTopicsProperties(
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
-                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq");
-        ledgerService = new LedgerServiceImpl(ledgerEntryRepository, kafkaEventPublisher, topics);
+                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
+                "account-activity", "transfers", "loans");
+        ledgerService = new LedgerServiceImpl(ledgerEntryRepository, accountRepository, kafkaEventPublisher, topics);
         when(ledgerEntryRepository.save(any(LedgerEntry.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
     private Payment payment() {
         return Payment.builder()
-                .paymentId(UUID.randomUUID()).clientId("client-1").amount(new BigDecimal("100.00"))
+                .paymentId(UUID.randomUUID()).clientId("client-1").sourceAccountId(sourceAccountId)
+                .amount(new BigDecimal("100.00"))
                 .status(PaymentStatus.RESERVED).idempotencyKey("key").country("US").createdAt(Instant.now())
+                .build();
+    }
+
+    private Account account() {
+        return Account.builder()
+                .accountId(sourceAccountId).clientId("client-1").accountType(AccountType.CHECKING)
+                .currency("USD").balance(new BigDecimal("1000.00")).status(AccountStatus.ACTIVE)
+                .createdAt(Instant.now())
                 .build();
     }
 
     @Test
     void recordDoubleEntryWritesOneDebitAndOneCredit() {
         Payment payment = payment();
+        when(accountRepository.findById(sourceAccountId)).thenReturn(Optional.of(account()));
 
         ledgerService.recordDoubleEntry(payment);
 

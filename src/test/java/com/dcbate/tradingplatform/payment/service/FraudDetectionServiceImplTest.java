@@ -58,7 +58,8 @@ class FraudDetectionServiceImplTest {
     void setUp() {
         KafkaTopicsProperties topics = new KafkaTopicsProperties(
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
-                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq");
+                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
+                "account-activity", "transfers", "loans");
         FraudProperties fraudProperties = new FraudProperties(3, 5, 60, 2);
         fraudDetectionService = new FraudDetectionServiceImpl(
                 paymentRepository, fraudFlagRepository, kafkaEventPublisher, topics, fraudProperties,

@@ -6,6 +6,8 @@ import com.dcbate.tradingplatform.domain.Payment;
 import com.dcbate.tradingplatform.domain.PaymentStatus;
 import com.dcbate.tradingplatform.domain.Settlement;
 import com.dcbate.tradingplatform.domain.SettlementStatus;
+import com.dcbate.tradingplatform.exception.AccountNotFoundException;
+import com.dcbate.tradingplatform.exception.InsufficientFundsException;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.kafka.event.NotificationEvent;
 import com.dcbate.tradingplatform.kafka.event.PaymentValidatedEvent;
@@ -56,13 +58,32 @@ public class SettlementServiceImpl implements SettlementService {
                 .updatedAt(Instant.now())
                 .build());
 
-        ledgerService.recordDoubleEntry(payment);
+        try {
+            ledgerService.recordDoubleEntry(payment);
+        } catch (InsufficientFundsException | AccountNotFoundException e) {
+            // Nothing was booked (the balance check runs before any entry is written), so there's
+            // nothing for reverseEntries to undo — this is a straight rejection, not a compensation.
+            failWithoutCompensation(payment, settlement, e.getMessage());
+            return;
+        }
 
         if (bankClearingClient.clear(payment)) {
             complete(payment, settlement);
         } else {
             compensate(payment, settlement);
         }
+    }
+
+    private void failWithoutCompensation(Payment payment, Settlement settlement, String reason) {
+        settlement.setStatus(SettlementStatus.COMPENSATED);
+        settlement.setUpdatedAt(Instant.now());
+        settlementRepository.save(settlement);
+
+        payment.setStatus(PaymentStatus.FAILED);
+        paymentRepository.save(payment);
+
+        publishNotification(payment, NotificationType.PAYMENT_FAILED, reason);
+        log.warn("Payment settlement rejected before booking: paymentId={}, reason={}", payment.getPaymentId(), reason);
     }
 
     private void complete(Payment payment, Settlement settlement) {

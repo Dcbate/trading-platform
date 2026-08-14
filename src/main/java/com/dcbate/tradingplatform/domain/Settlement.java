@@ -14,6 +14,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** One settlement-saga attempt for a payment, owned end-to-end by {@code SettlementServiceImpl}. */
 @Entity
 @Table(name = "settlements")
 @Getter

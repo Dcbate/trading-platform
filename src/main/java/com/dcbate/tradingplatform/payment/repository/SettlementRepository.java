@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+/** {@code findByStatus(CLEARED)} is how {@code ReconciliationServiceImpl} finds settlements to check. */
 public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
 
     Optional<Settlement> findByPaymentId(UUID paymentId);

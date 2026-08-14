@@ -14,6 +14,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Persisted by {@code RiskServiceImpl} whenever it rejects an order (notional or velocity limit breach). */
 @Entity
 @Table(name = "risk_logs")
 @Getter

@@ -14,6 +14,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Written by {@code NotificationServiceImpl} only on successful delivery or as a terminal dead-letter record — never for an in-progress attempt. */
 @Entity
 @Table(name = "notifications")
 @Getter

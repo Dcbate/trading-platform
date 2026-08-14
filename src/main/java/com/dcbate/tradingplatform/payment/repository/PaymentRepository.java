@@ -8,6 +8,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+/**
+ * {@code findByIdempotencyKey} backs payment idempotency;
+ * {@code findTopByClientIdAndPaymentIdNotOrderByCreatedAtDesc} backs the fraud country-change
+ * check (the most recent *other* payment for the client); {@code averageSettledAmountByClientId}
+ * backs the fraud amount-anomaly check.
+ */
 public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     Optional<Payment> findByIdempotencyKey(String idempotencyKey);

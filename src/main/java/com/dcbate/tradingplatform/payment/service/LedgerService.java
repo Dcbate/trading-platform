@@ -2,6 +2,7 @@ package com.dcbate.tradingplatform.payment.service;
 
 import com.dcbate.tradingplatform.domain.Payment;
 
+/** Double-entry bookkeeping, called directly by {@code SettlementServiceImpl} within its saga — never invoked over Kafka. */
 public interface LedgerService {
 
     /** Records one DEBIT + one CREDIT row for the payment, atomically, and archives both to Kafka. */

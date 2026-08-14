@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+/** API-facing view of an {@code Order}; also what {@code OrderStreamHandler} broadcasts over WebSocket. */
 public record OrderResponse(
         UUID orderId,
         String clientId,

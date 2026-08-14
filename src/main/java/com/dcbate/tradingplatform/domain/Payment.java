@@ -15,6 +15,11 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/**
+ * A payment. {@code idempotencyKey} is unique-constrained in the schema, which is what makes
+ * {@code PaymentServiceImpl.submitPayment()} idempotent: a resubmitted key returns this same row
+ * instead of inserting a duplicate.
+ */
 @Entity
 @Table(name = "payments")
 @Getter
@@ -29,6 +34,9 @@ public class Payment {
 
     @Column(nullable = false)
     private String clientId;
+
+    @Column(nullable = false)
+    private UUID sourceAccountId;
 
     @Column(nullable = false)
     private BigDecimal amount;

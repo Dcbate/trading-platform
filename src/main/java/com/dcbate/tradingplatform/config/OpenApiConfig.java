@@ -8,6 +8,7 @@ import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/** Powers the Swagger UI at {@code /v1/swagger-ui.html} — title/description plus the bearer-JWT auth scheme every endpoint expects. */
 @Configuration
 public class OpenApiConfig {
 

@@ -18,6 +18,13 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
 
+/**
+ * Producer/consumer factories and topic provisioning shared across trading and payments. The
+ * {@code NewTopic} beans here are the source of truth for partition counts — the broker's
+ * auto-create-topics is deliberately disabled in {@code docker-compose.yml} so a race between
+ * the two can never silently create a topic with the wrong partition count (this bit us once
+ * during Phase 1 development).
+ */
 @Configuration
 @EnableKafka
 public class KafkaConfig {
@@ -128,5 +135,20 @@ public class KafkaConfig {
     @Bean
     public NewTopic notificationsTopic(KafkaTopicsProperties topics) {
         return new NewTopic(topics.notifications(), 5, (short) 1);
+    }
+
+    @Bean
+    public NewTopic accountActivityTopic(KafkaTopicsProperties topics) {
+        return new NewTopic(topics.accountActivity(), 10, (short) 1);
+    }
+
+    @Bean
+    public NewTopic transfersTopic(KafkaTopicsProperties topics) {
+        return new NewTopic(topics.transfers(), 10, (short) 1);
+    }
+
+    @Bean
+    public NewTopic loansTopic(KafkaTopicsProperties topics) {
+        return new NewTopic(topics.loans(), 5, (short) 1);
     }
 }

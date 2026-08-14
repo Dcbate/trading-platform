@@ -15,6 +15,11 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/**
+ * A buy or sell order. {@code OrderService} is the only writer of the initial {@code PENDING}
+ * row; {@code RiskService} writes {@code VALIDATED}/{@code REJECTED}; {@code ExecutionService}
+ * writes {@code PARTIALLY_FILLED}/{@code FILLED} as fills come in from the Matching Engine.
+ */
 @Entity
 @Table(name = "orders")
 @Getter

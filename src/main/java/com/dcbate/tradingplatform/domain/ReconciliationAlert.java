@@ -13,6 +13,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** A ledger discrepancy above the auto-resolve threshold, found by {@code ReconciliationServiceImpl}. */
 @Entity
 @Table(name = "reconciliation_alerts")
 @Getter

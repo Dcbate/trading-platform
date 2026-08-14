@@ -25,9 +25,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * No real bank statement feed exists for Phase 2, so this checks internal ledger integrity
- * instead — for each cleared settlement, do its debit and credit entries actually net to zero.
- * That's a real, testable check; comparing against an actual bank statement is a Phase 3 item.
+ * No real bank statement feed exists, so this checks internal ledger integrity instead — for
+ * each cleared settlement, do its debit and credit entries actually net to zero. That's a real,
+ * testable check; comparing against an actual bank statement needs a real bank integration first
+ * (see README's known gaps).
  */
 @Slf4j
 @Service

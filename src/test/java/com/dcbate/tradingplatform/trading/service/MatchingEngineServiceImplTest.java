@@ -33,7 +33,8 @@ class MatchingEngineServiceImplTest {
     void setUp() {
         KafkaTopicsProperties topics = new KafkaTopicsProperties(
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
-                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq");
+                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
+                "account-activity", "transfers", "loans");
         matchingEngineService = new MatchingEngineServiceImpl(kafkaEventPublisher, topics);
     }
 

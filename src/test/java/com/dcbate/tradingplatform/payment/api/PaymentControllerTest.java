@@ -1,6 +1,7 @@
 package com.dcbate.tradingplatform.payment.api;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,6 +29,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -53,16 +56,21 @@ class PaymentControllerTest {
     }
 
     private PaymentRequest validRequest() {
-        return new PaymentRequest("client-1", new BigDecimal("100.00"), "key-1", "US");
+        return new PaymentRequest("client-1", UUID.randomUUID(), new BigDecimal("100.00"), "key-1", "US");
+    }
+
+    private Authentication clientAuth(String clientId) {
+        return new TestingAuthenticationToken(clientId, null, "ROLE_CLIENT");
     }
 
     @Test
     void submitPaymentReturnsAccepted() throws Exception {
         PaymentResponse response = new PaymentResponse(
-                UUID.randomUUID(), "client-1", new BigDecimal("100.00"), "US", PaymentStatus.PENDING, Instant.now());
-        when(paymentService.submitPayment(any())).thenReturn(response);
+                UUID.randomUUID(), "client-1", UUID.randomUUID(), new BigDecimal("100.00"), "US", PaymentStatus.PENDING, Instant.now());
+        when(paymentService.submitPayment(any(), any())).thenReturn(response);
 
         mockMvc.perform(post("/v1/payments")
+                        .principal(clientAuth("client-1"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
                 .andExpect(status().isAccepted())
@@ -71,18 +79,23 @@ class PaymentControllerTest {
 
     @Test
     void submitPaymentRejectsInvalidCountry() throws Exception {
-        String invalidPayload = "{\"clientId\":\"c1\",\"amount\":100.00,\"idempotencyKey\":\"k1\",\"country\":\"USA\"}";
+        String invalidPayload = "{\"clientId\":\"c1\",\"sourceAccountId\":\"" + UUID.randomUUID()
+                + "\",\"amount\":100.00,\"idempotencyKey\":\"k1\",\"country\":\"USA\"}";
 
-        mockMvc.perform(post("/v1/payments").contentType(MediaType.APPLICATION_JSON).content(invalidPayload))
+        mockMvc.perform(post("/v1/payments")
+                        .principal(clientAuth("c1"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invalidPayload))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void getPaymentReturnsNotFoundWhenMissing() throws Exception {
         UUID paymentId = UUID.randomUUID();
-        when(paymentService.getPayment(paymentId)).thenThrow(new PaymentNotFoundException(paymentId));
+        when(paymentService.getPayment(eq(paymentId), any())).thenThrow(new PaymentNotFoundException(paymentId));
 
-        mockMvc.perform(get("/v1/payments/{id}", paymentId)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/v1/payments/{id}", paymentId).principal(clientAuth("client-1")))
+                .andExpect(status().isNotFound());
     }
 
     @Test

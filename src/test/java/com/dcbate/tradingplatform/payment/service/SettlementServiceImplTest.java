@@ -53,7 +53,8 @@ class SettlementServiceImplTest {
     void setUp() {
         KafkaTopicsProperties topics = new KafkaTopicsProperties(
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
-                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq");
+                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
+                "account-activity", "transfers", "loans");
         settlementService = new SettlementServiceImpl(
                 paymentRepository, settlementRepository, ledgerService, bankClearingClient, kafkaEventPublisher, topics);
         when(settlementRepository.save(any(Settlement.class))).thenAnswer(inv -> inv.getArgument(0));

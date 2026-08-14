@@ -13,6 +13,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** One immutable fill, written only by {@code ExecutionService} after the Matching Engine produces a {@code TradeEvent}. */
 @Entity
 @Table(name = "trades")
 @Getter

@@ -4,6 +4,7 @@ import com.dcbate.tradingplatform.payment.api.dto.PaymentRequest;
 import com.dcbate.tradingplatform.payment.api.dto.PaymentResponse;
 import com.dcbate.tradingplatform.payment.service.FraudDetectionService;
 import com.dcbate.tradingplatform.payment.service.PaymentService;
+import com.dcbate.tradingplatform.security.CallerPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -13,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/** REST surface for the payment pipeline; {@code approve}/{@code reject} are the compliance-officer override for {@code UNDER_REVIEW} payments. */
 @Slf4j
 @RestController
 @RequestMapping("/v1/payments")
@@ -31,18 +34,18 @@ public class PaymentController {
     private final FraudDetectionService fraudDetectionService;
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('TRADER', 'ADMIN')")
-    @Operation(summary = "Submit a payment (idempotent on idempotencyKey)")
-    public ResponseEntity<PaymentResponse> submitPayment(@Valid @RequestBody PaymentRequest request) {
-        PaymentResponse response = paymentService.submitPayment(request);
+    @PreAuthorize("hasAnyRole('CLIENT', 'ADMIN')")
+    @Operation(summary = "Submit a payment to another bank (idempotent on idempotencyKey)")
+    public ResponseEntity<PaymentResponse> submitPayment(@Valid @RequestBody PaymentRequest request, Authentication authentication) {
+        PaymentResponse response = paymentService.submitPayment(request, CallerPrincipal.from(authentication));
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
     @GetMapping("/{paymentId}")
-    @PreAuthorize("hasAnyRole('TRADER', 'ADMIN', 'AUDITOR', 'COMPLIANCE_OFFICER')")
+    @PreAuthorize("hasAnyRole('CLIENT', 'ADMIN', 'AUDITOR', 'COMPLIANCE_OFFICER')")
     @Operation(summary = "Look up a payment by id")
-    public ResponseEntity<PaymentResponse> getPayment(@PathVariable UUID paymentId) {
-        return ResponseEntity.ok(paymentService.getPayment(paymentId));
+    public ResponseEntity<PaymentResponse> getPayment(@PathVariable UUID paymentId, Authentication authentication) {
+        return ResponseEntity.ok(paymentService.getPayment(paymentId, CallerPrincipal.from(authentication)));
     }
 
     @PostMapping("/{paymentId}/approve")

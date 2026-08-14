@@ -4,6 +4,7 @@ import com.dcbate.tradingplatform.kafka.event.OrderValidatedEvent;
 import com.dcbate.tradingplatform.kafka.event.TradeEvent;
 import java.util.List;
 
+/** The matching core, driven by {@code MatchingEngineConsumerRunner}'s dedicated poll loop rather than a Spring listener. */
 public interface MatchingEngineService {
 
     /** Matches the incoming order against its symbol's book and publishes any resulting trades. */

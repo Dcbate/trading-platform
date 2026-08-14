@@ -30,6 +30,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Rules run in order via {@code Optional.or()} — velocity, then country-change, then
+ * amount-anomaly — and the first match wins; a payment is never checked against a rule after one
+ * has already fired.
+ *
+ * @see FraudDetectionService
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor

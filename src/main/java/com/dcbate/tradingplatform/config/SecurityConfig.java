@@ -27,9 +27,12 @@ import org.springframework.security.web.SecurityFilterChain;
  * <ul>
  *   <li>{@code dev} profile: permits all requests. Local-only convenience so the API can be
  *       exercised with plain curl without minting a JWT first. Never active in production.
- *   <li>default: stateless JWT resource server. Roles TRADER / ADMIN / AUDITOR /
- *       COMPLIANCE_OFFICER are read from the {@code roles} claim and enforced via
- *       {@code @PreAuthorize} on the controllers.
+ *   <li>default: stateless JWT resource server. Roles CLIENT (a retail customer) / TRADER / ADMIN /
+ *       AUDITOR / COMPLIANCE_OFFICER are read from the {@code roles} claim and enforced via
+ *       {@code @PreAuthorize}. Client-facing endpoints additionally check resource ownership via
+ *       {@link com.dcbate.tradingplatform.security.CallerPrincipal} — {@code @PreAuthorize} alone
+ *       only proves the caller is *some* client, not that they own the specific account/payment
+ *       being accessed.
  * </ul>
  */
 @Configuration
@@ -48,7 +51,7 @@ public class SecurityConfig {
         // every trading role to the anonymous dev principal satisfies both without disabling
         // method security itself, so dev behaves like prod minus the JWT step.
         http.csrf(csrf -> csrf.disable())
-                .anonymous(anon -> anon.authorities("ROLE_TRADER", "ROLE_ADMIN", "ROLE_AUDITOR", "ROLE_COMPLIANCE_OFFICER"))
+                .anonymous(anon -> anon.authorities("ROLE_TRADER", "ROLE_ADMIN", "ROLE_AUDITOR", "ROLE_COMPLIANCE_OFFICER", "ROLE_CLIENT"))
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
         return http.build();
     }

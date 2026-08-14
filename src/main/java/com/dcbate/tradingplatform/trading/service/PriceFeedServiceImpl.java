@@ -92,6 +92,11 @@ public class PriceFeedServiceImpl implements PriceFeedService {
         return next.subtract(previous).abs().divide(previous, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
     }
 
+    @Override
+    public Optional<BigDecimal> currentPrice(String symbol) {
+        return readCachedPrice(symbol);
+    }
+
     private Optional<BigDecimal> readCachedPrice(String symbol) {
         String cached = redisTemplate.opsForValue().get(CACHE_KEY_PREFIX + symbol);
         return Optional.ofNullable(cached).map(BigDecimal::new);

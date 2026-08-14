@@ -2,6 +2,10 @@ package com.dcbate.tradingplatform.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.dcbate.tradingplatform.account.repository.AccountRepository;
+import com.dcbate.tradingplatform.domain.Account;
+import com.dcbate.tradingplatform.domain.AccountStatus;
+import com.dcbate.tradingplatform.domain.AccountType;
 import com.dcbate.tradingplatform.domain.LedgerEntry;
 import com.dcbate.tradingplatform.domain.LedgerEntryType;
 import com.dcbate.tradingplatform.domain.PaymentStatus;
@@ -9,6 +13,7 @@ import com.dcbate.tradingplatform.payment.api.dto.PaymentRequest;
 import com.dcbate.tradingplatform.payment.api.dto.PaymentResponse;
 import com.dcbate.tradingplatform.payment.repository.LedgerEntryRepository;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -68,9 +73,21 @@ class PaymentFlowIntegrationTest {
     @Autowired
     private LedgerEntryRepository ledgerEntryRepository;
 
+    @Autowired
+    private AccountRepository accountRepository;
+
+    private Account openFundedAccount(String clientId, BigDecimal balance) {
+        return accountRepository.save(Account.builder()
+                .accountId(UUID.randomUUID()).clientId(clientId).accountType(AccountType.CHECKING)
+                .currency("USD").balance(balance).status(AccountStatus.ACTIVE).createdAt(Instant.now())
+                .build());
+    }
+
     @Test
     void normalPaymentSettlesAndLedgerNetsToZero() {
-        PaymentRequest request = new PaymentRequest("payer-1", new BigDecimal("250.00"), "idem-" + UUID.randomUUID(), "US");
+        Account account = openFundedAccount("payer-1", new BigDecimal("10000.00"));
+        PaymentRequest request = new PaymentRequest(
+                "payer-1", account.getAccountId(), new BigDecimal("250.00"), "idem-" + UUID.randomUUID(), "US");
 
         UUID paymentId = submitPayment(request);
         PaymentResponse settled = awaitStatus(paymentId, PaymentStatus.SETTLED);
@@ -86,7 +103,9 @@ class PaymentFlowIntegrationTest {
 
     @Test
     void amountAboveBankThresholdFailsAndCompensates() {
-        PaymentRequest request = new PaymentRequest("payer-2", new BigDecimal("600000.00"), "idem-" + UUID.randomUUID(), "US");
+        Account account = openFundedAccount("payer-2", new BigDecimal("1000000.00"));
+        PaymentRequest request = new PaymentRequest(
+                "payer-2", account.getAccountId(), new BigDecimal("600000.00"), "idem-" + UUID.randomUUID(), "US");
 
         UUID paymentId = submitPayment(request);
         PaymentResponse failed = awaitStatus(paymentId, PaymentStatus.FAILED);

@@ -7,6 +7,7 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 
+/** Registers {@code OrderStreamHandler} at {@code /v1/orders/stream}, the live order-status feed. */
 @Configuration
 @EnableWebSocket
 @RequiredArgsConstructor

@@ -14,6 +14,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Persisted by {@code FraudDetectionServiceImpl} whenever a payment is flagged (blocked or sent for review). */
 @Entity
 @Table(name = "fraud_flags")
 @Getter

@@ -2,6 +2,7 @@ package com.dcbate.tradingplatform.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+/** Topic names bound from {@code kafka.topics.*} in application.yml — every producer/consumer in the app reads names from here rather than hardcoding strings. */
 @ConfigurationProperties(prefix = "kafka.topics")
 public record KafkaTopicsProperties(
         String orders,
@@ -15,5 +16,8 @@ public record KafkaTopicsProperties(
         String settlements,
         String fraudAlerts,
         String notifications,
-        String notificationsDlq) {
+        String notificationsDlq,
+        String accountActivity,
+        String transfers,
+        String loans) {
 }
