@@ -11,6 +11,13 @@ import net.openhft.chronicle.queue.ChronicleQueue;
 import net.openhft.chronicle.queue.ExcerptTailer;
 import org.springframework.stereotype.Component;
 
+/**
+ * @see TradeJournalReader
+ *
+ * Reads the whole journal front-to-back into memory each call — fine for the journal's actual
+ * use (ad hoc compliance replay of a bounded local file), not built for streaming a large queue.
+ * A single malformed entry is logged and skipped rather than failing the whole read.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor

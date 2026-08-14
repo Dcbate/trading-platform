@@ -64,7 +64,9 @@ public class LoanServiceImpl implements LoanService {
                 .accountId(request.accountId())
                 .principal(request.principal())
                 .outstandingPrincipal(request.principal())
-                .interestRateAnnualPercent(request.interestRateAnnualPercent())
+                .interestRateAnnualPercent(request.productType().getInterestRateAnnualPercent())
+                .productType(request.productType())
+                .termMonths(request.productType().getTermMonths())
                 .accruedInterest(BigDecimal.ZERO)
                 .status(LoanStatus.ACTIVE)
                 .createdAt(now)
@@ -72,8 +74,9 @@ public class LoanServiceImpl implements LoanService {
                 .build());
 
         publishEvent(loan, LoanEventType.ORIGINATED, request.principal());
-        log.info("Loan originated: loanId={}, clientId={}, accountId={}, principal={}, rate={}",
-                loan.getLoanId(), loan.getClientId(), loan.getAccountId(), loan.getPrincipal(), loan.getInterestRateAnnualPercent());
+        log.info("Loan originated: loanId={}, clientId={}, accountId={}, productType={}, principal={}, rate={}, termMonths={}",
+                loan.getLoanId(), loan.getClientId(), loan.getAccountId(), loan.getProductType(),
+                loan.getPrincipal(), loan.getInterestRateAnnualPercent(), loan.getTermMonths());
 
         return LoanResponse.from(loan);
     }

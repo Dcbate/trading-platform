@@ -63,7 +63,8 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(
                         org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/health", "/actuator/prometheus", "/v1/swagger-ui/**", "/v1/api-docs/**")
+                        .requestMatchers("/actuator/health", "/actuator/prometheus", "/v1/swagger-ui/**", "/v1/api-docs/**",
+                                "/playground.html", "/v1/loans/products")
                         .permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));

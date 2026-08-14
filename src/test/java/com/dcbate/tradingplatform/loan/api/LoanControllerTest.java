@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.dcbate.tradingplatform.domain.LoanProductType;
 import com.dcbate.tradingplatform.domain.LoanStatus;
 import com.dcbate.tradingplatform.exception.GlobalExceptionHandler;
 import com.dcbate.tradingplatform.exception.LoanNotActiveException;
@@ -54,13 +55,21 @@ class LoanControllerTest {
     }
 
     private LoanResponse response(UUID loanId, LoanStatus status, BigDecimal outstanding, BigDecimal accrued) {
-        return new LoanResponse(loanId, "client-1", UUID.randomUUID(), new BigDecimal("1000.00"),
-                outstanding, new BigDecimal("5.0"), accrued, status, Instant.now());
+        return new LoanResponse(loanId, "client-1", UUID.randomUUID(), LoanProductType.PERSONAL_SHORT, new BigDecimal("1000.00"),
+                outstanding, LoanProductType.PERSONAL_SHORT.getInterestRateAnnualPercent(), 12, accrued, status, Instant.now());
+    }
+
+    @Test
+    void listProductsReturnsTheFullCatalog() throws Exception {
+        mockMvc.perform(get("/v1/loans/products"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(LoanProductType.values().length))
+                .andExpect(jsonPath("$[0].code").value(LoanProductType.values()[0].name()));
     }
 
     @Test
     void originateReturnsCreated() throws Exception {
-        LoanRequest request = new LoanRequest("client-1", UUID.randomUUID(), new BigDecimal("1000.00"), new BigDecimal("5.0"));
+        LoanRequest request = new LoanRequest("client-1", UUID.randomUUID(), new BigDecimal("1000.00"), LoanProductType.PERSONAL_SHORT);
         when(loanService.originate(any(), any())).thenReturn(response(UUID.randomUUID(), LoanStatus.ACTIVE, new BigDecimal("1000.00"), BigDecimal.ZERO));
 
         mockMvc.perform(post("/v1/loans")

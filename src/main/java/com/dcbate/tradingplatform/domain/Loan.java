@@ -20,7 +20,9 @@ import lombok.Setter;
  * {@code accruedInterest} are tracked separately because a repayment pays down accrued interest
  * first, then principal (see {@code LoanServiceImpl.repay}) — the real amortization order.
  * {@code lastAccrualAt} is what {@code LoanServiceImpl.accrueInterest()}'s scheduled job advances
- * each run, so interest is never double-counted across runs.
+ * each run, so interest is never double-counted across runs. {@code interestRateAnnualPercent}
+ * and {@code termMonths} are a snapshot of {@code productType}'s catalog values at origination —
+ * see {@link LoanProductType}.
  */
 @Entity
 @Table(name = "loans")
@@ -48,6 +50,13 @@ public class Loan {
 
     @Column(nullable = false)
     private BigDecimal interestRateAnnualPercent;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private LoanProductType productType;
+
+    @Column(nullable = false)
+    private int termMonths;
 
     @Column(nullable = false)
     private BigDecimal accruedInterest;

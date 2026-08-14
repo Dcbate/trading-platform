@@ -9,6 +9,13 @@ import net.openhft.chronicle.queue.ChronicleQueue;
 import net.openhft.chronicle.queue.ExcerptAppender;
 import org.springframework.stereotype.Component;
 
+/**
+ * @see TradeJournalWriter
+ *
+ * A serialization failure is logged and dropped rather than thrown — a malformed journal entry
+ * shouldn't take down the trade pipeline that's already committed the trade elsewhere (Postgres,
+ * the {@code trades} topic); the journal is a compliance audit trail, not the source of truth.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor

@@ -101,12 +101,21 @@ Full lifecycle in [`LoanServiceImpl`](../src/main/java/com/dcbate/tradingplatfor
 ACTIVE → PAID_OFF   (outstandingPrincipal AND accruedInterest both reach zero)
 ```
 
-- **Originate**: `POST /v1/loans {clientId, accountId, principal, interestRateAnnualPercent}` —
-  ownership-checked on `accountId`, credits the account by `principal` (loan proceeds land in a
-  real account, the same mechanic as a deposit), creates the `Loan` row, publishes `LoanEvent`
-  (`ORIGINATED`) to `loans`.
-- **View**: `GET /v1/loans/{id}` returns `principal`, `outstandingPrincipal`,
-  `interestRateAnnualPercent`, and `accruedInterest` — "see the loan amount and interest."
+- **Product catalog**: `GET /v1/loans/products` (no auth required — it's a public rate sheet, not
+  a client resource) lists the bank's fixed catalog
+  ([`LoanProductType`](../src/main/java/com/dcbate/tradingplatform/domain/LoanProductType.java)):
+  `PERSONAL_SHORT` (1yr, 9.99%), `PERSONAL_LONG` (3yr, 7.49%), `AUTO` (5yr, 5.25%), `STUDENT`
+  (10yr, 4.25%), `MORTGAGE` (30yr, 3.75%). The rate and term are properties of the product, not a
+  value the caller types in — the same way a real bank prices a loan by product rather than
+  letting a customer name their own rate.
+- **Originate**: `POST /v1/loans {clientId, accountId, principal, productType}` — ownership-checked
+  on `accountId`, looks up the rate and term from `productType` and snapshots both onto the `Loan`
+  row (so a later catalog change never retroactively alters an existing loan), credits the account
+  by `principal` (loan proceeds land in a real account, the same mechanic as a deposit), publishes
+  `LoanEvent` (`ORIGINATED`) to `loans`.
+- **View**: `GET /v1/loans/{id}` returns `productType`, `principal`, `outstandingPrincipal`,
+  `interestRateAnnualPercent`, `termMonths`, and `accruedInterest` — "see the loan amount and
+  interest."
 - **Interest accrual**: `LoanInterestScheduler` (cron `loan.interest.accrual-cron`, default 03:00
   daily) calls `LoanServiceImpl.accrueInterest()` for every `ACTIVE` loan — simple (non-compounding)
   daily interest: `outstandingPrincipal × (rate/100) × (daysSinceLastAccrual/365)`, added to

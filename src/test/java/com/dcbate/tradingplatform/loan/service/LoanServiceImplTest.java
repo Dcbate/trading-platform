@@ -11,6 +11,7 @@ import com.dcbate.tradingplatform.domain.Account;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.domain.AccountType;
 import com.dcbate.tradingplatform.domain.Loan;
+import com.dcbate.tradingplatform.domain.LoanProductType;
 import com.dcbate.tradingplatform.domain.LoanStatus;
 import com.dcbate.tradingplatform.exception.LoanNotActiveException;
 import com.dcbate.tradingplatform.exception.LoanNotFoundException;
@@ -69,7 +70,8 @@ class LoanServiceImplTest {
         return Loan.builder()
                 .loanId(loanId).clientId("client-1").accountId(accountId)
                 .principal(new BigDecimal("1000.00")).outstandingPrincipal(outstandingPrincipal)
-                .interestRateAnnualPercent(new BigDecimal("5.0")).accruedInterest(accruedInterest)
+                .interestRateAnnualPercent(new BigDecimal("5.0")).productType(LoanProductType.PERSONAL_SHORT).termMonths(12)
+                .accruedInterest(accruedInterest)
                 .status(LoanStatus.ACTIVE).createdAt(Instant.now()).lastAccrualAt(Instant.now())
                 .build();
     }
@@ -81,16 +83,19 @@ class LoanServiceImplTest {
         when(loanRepository.save(any(Loan.class))).thenAnswer(inv -> inv.getArgument(0));
 
         LoanResponse response = loanService.originate(
-                new LoanRequest("client-1", accountId, new BigDecimal("1000.00"), new BigDecimal("5.0")), owner);
+                new LoanRequest("client-1", accountId, new BigDecimal("1000.00"), LoanProductType.PERSONAL_SHORT), owner);
 
         assertThat(response.status()).isEqualTo(LoanStatus.ACTIVE);
         assertThat(response.outstandingPrincipal()).isEqualByComparingTo("1000.00");
         assertThat(response.accruedInterest()).isEqualByComparingTo("0");
+        assertThat(response.productType()).isEqualTo(LoanProductType.PERSONAL_SHORT);
+        assertThat(response.termMonths()).isEqualTo(12);
+        assertThat(response.interestRateAnnualPercent()).isEqualByComparingTo(LoanProductType.PERSONAL_SHORT.getInterestRateAnnualPercent());
     }
 
     @Test
     void originateDeniedForAnotherClient() {
-        LoanRequest request = new LoanRequest("client-2", accountId, new BigDecimal("1000.00"), new BigDecimal("5.0"));
+        LoanRequest request = new LoanRequest("client-2", accountId, new BigDecimal("1000.00"), LoanProductType.PERSONAL_SHORT);
 
         assertThatThrownBy(() -> loanService.originate(request, owner)).isInstanceOf(AccessDeniedException.class);
     }

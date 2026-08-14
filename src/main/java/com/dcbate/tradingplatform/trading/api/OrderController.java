@@ -19,6 +19,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * REST surface for the FX trading desk. Unlike the account/payment/transfer/loan controllers,
+ * this doesn't run a {@code CallerPrincipal} ownership check — {@code TRADER} is a bank-staff
+ * dealer role here, not a retail client acting on their own resource, so role gating alone is the
+ * right check (see {@code docs/TRADING_SYSTEM.md}).
+ */
 @Slf4j
 @RestController
 @RequestMapping("/v1/orders")

@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bank Platform Playground</title>
+<style>
+  :root {
+    --navy-900: #0b1220;
+    --navy-800: #101a2e;
+    --navy-700: #16213d;
+    --navy-600: #22304f;
+    --teal-500: #0d9488;
+    --teal-400: #2dd4bf;
+    --ink: #e7ecf5;
+    --ink-dim: #9aa7c2;
+    --card: #ffffff;
+    --card-border: #e4e8f0;
+    --bg: #f4f6fb;
+    --text: #14213d;
+    --text-dim: #5a6785;
+    --danger: #dc2626;
+    --danger-bg: #fef2f2;
+    --success: #059669;
+    --success-bg: #ecfdf5;
+    --radius: 12px;
+    --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    background: linear-gradient(135deg, var(--navy-900), var(--navy-700) 60%, var(--navy-600));
+    color: var(--ink);
+    padding: 28px 24px 22px;
+  }
+  header h1 {
+    margin: 0 0 4px;
+    font-size: 26px;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  header h1 .pill {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: var(--teal-500);
+    color: #04231f;
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+  header p.sub {
+    margin: 0;
+    color: var(--ink-dim);
+    font-size: 14px;
+  }
+  .config-bar {
+    max-width: 1180px;
+    margin: 18px auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .config-bar input {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.14);
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+  .config-bar input::placeholder { color: var(--ink-dim); }
+  .config-bar label {
+    font-size: 12px;
+    color: var(--ink-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #apiBase { width: 220px; }
+  #bearerToken { width: 340px; }
+
+  main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 22px 24px 60px;
+  }
+
+  .known-accounts {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 20px;
+  }
+  .known-accounts h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    margin: 0 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .known-accounts .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 30px;
+  }
+  .chip {
+    background: #eef2ff;
+    border: 1px solid #dbe4ff;
+    color: #33415c;
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .chip:hover { background: #dfe7ff; }
+  .chip .label { color: var(--teal-500); font-weight: 700; margin-right: 5px; }
+  button.seed {
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--navy-800);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button.seed:hover { background: var(--navy-700); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 18px;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .card h3 {
+    margin: 0;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card h3 .icon {
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--teal-500);
+    color: white;
+    font-size: 14px;
+    flex: none;
+  }
+  .card p.desc {
+    margin: -4px 0 2px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .field label {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+  .row2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  input, select {
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 7px 9px;
+    border: 1px solid #d6dbe6;
+    border-radius: 7px;
+    background: #fbfcfe;
+    color: var(--text);
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--teal-500);
+    box-shadow: 0 0 0 3px rgba(13,148,136,0.14);
+  }
+  .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 2px;
+  }
+  button.run {
+    background: var(--navy-800);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: 1;
+  }
+  button.run:hover { background: var(--navy-700); }
+  button.run:active { transform: translateY(1px); }
+  button.run[data-variant="get"] { background: #eef2ff; color: #33415c; }
+  button.run[data-variant="get"]:hover { background: #dfe7ff; }
+
+  .resp {
+    display: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #0d1424;
+    color: #cfe8ff;
+    border-radius: 8px;
+    padding: 10px 12px;
+    max-height: 220px;
+    overflow: auto;
+    border: 1px solid #1c2740;
+  }
+  .resp.show { display: block; }
+  .resp.err { background: var(--danger-bg); color: #7f1d1d; border-color: #fecaca; }
+  .resp.ok-flash { animation: flashok 0.6s ease; }
+  @keyframes flashok {
+    0% { box-shadow: 0 0 0 0 rgba(5,150,105,0.5); }
+    100% { box-shadow: 0 0 0 0 rgba(5,150,105,0); }
+  }
+  .status-badge {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 999px;
+    display: inline-block;
+    margin-bottom: 6px;
+  }
+  .status-badge.ok { background: var(--success-bg); color: var(--success); }
+  .status-badge.err { background: var(--danger-bg); color: var(--danger); }
+
+  section.log {
+    margin-top: 26px;
+  }
+  section.log h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  section.log h2 button {
+    font-size: 11px;
+    background: none;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 3px 8px;
+    cursor: pointer;
+    color: var(--text-dim);
+  }
+  .log-entries {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .log-entry {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+  }
+  .log-entry .time { color: var(--text-dim); flex: none; }
+  .log-entry .method { font-weight: 700; flex: none; width: 42px; }
+  .log-entry .method.POST { color: var(--teal-500); }
+  .log-entry .method.GET { color: #6366f1; }
+  .log-entry .path { flex: 1; color: var(--text); }
+  .log-entry .code { flex: none; font-weight: 700; }
+  .log-entry .code.ok2xx { color: var(--success); }
+  .log-entry .code.err4xx, .log-entry .code.err5xx { color: var(--danger); }
+
+  footer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 12px;
+    padding: 30px 0 10px;
+  }
+  datalist { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🏦 Bank Platform Playground <span class="pill">dev</span></h1>
+  <p class="sub">Open accounts, move money, take out a loan, trade FX — every button below calls the real API on this running instance.</p>
+  <div class="config-bar">
+    <label>API base <input id="apiBase" placeholder="http://localhost:8080" /></label>
+    <label>Bearer token (optional — leave blank under the <code>dev</code> profile) <input id="bearerToken" placeholder="eyJhbGciOi..." /></label>
+  </div>
+</header>
+
+<main>
+
+  <div class="known-accounts">
+    <h2>
+      <span>Known accounts &amp; loans (click a chip to copy its id)</span>
+      <button class="seed" onclick="seedDemo()">+ Seed demo accounts (alice / bob)</button>
+    </h2>
+    <div class="chips" id="chips"><span style="color:var(--text-dim);font-size:12px;">Nothing yet — open an account below, or click "Seed demo accounts".</span></div>
+    <datalist id="accountIds"></datalist>
+    <datalist id="loanIds"></datalist>
+  </div>
+
+  <div class="grid">
+
+    <!-- Open Account -->
+    <div class="card">
+      <h3><span class="icon">＋</span>Open account</h3>
+      <p class="desc">Creates a client's bank account. Type doesn't change behavior in this build — it's a label (<code>FX_TRADING</code> is what funds FX orders).</p>
+      <div class="row2">
+        <div class="field"><label>Client ID</label><input id="oa-clientId" value="alice" /></div>
+        <div class="field"><label>Account type</label>
+          <select id="oa-accountType">
+            <option>CHECKING</option><option>SAVINGS</option><option>FX_TRADING</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Currency</label><input id="oa-currency" value="USD" maxlength="3" /></div>
+        <div class="field"><label>Opening balance</label><input id="oa-openingBalance" value="1000.00" /></div>
+      </div>
+      <div class="actions"><button class="run" onclick="openAccount()">Open account</button></div>
+      <div class="resp" id="oa-resp"></div>
+    </div>
+
+    <!-- Get / List Accounts -->
+    <div class="card">
+      <h3><span class="icon">🔍</span>Look up accounts</h3>
+      <p class="desc">Fetch one account by id, or list everything a client owns.</p>
+      <div class="field"><label>Account ID</label><input id="ga-accountId" list="accountIds" placeholder="account id" /></div>
+      <div class="actions"><button class="run" data-variant="get" onclick="getAccount()">Get account</button></div>
+      <div class="field"><label>Client ID</label><input id="la-clientId" value="alice" /></div>
+      <div class="actions"><button class="run" data-variant="get" onclick="listAccounts()">List client's accounts</button></div>
+      <div class="resp" id="ga-resp"></div>
+    </div>
+
+    <!-- Deposit -->
+    <div class="card">
+      <h3><span class="icon">↓</span>Deposit</h3>
+      <p class="desc">Add money to an account.</p>
+      <div class="field"><label>Account ID</label><input id="dep-accountId" list="accountIds" /></div>
+      <div class="field"><label>Amount</label><input id="dep-amount" value="100.00" /></div>
+      <div class="actions"><button class="run" onclick="deposit()">Deposit</button></div>
+      <div class="resp" id="dep-resp"></div>
+    </div>
+
+    <!-- Withdraw -->
+    <div class="card">
+      <h3><span class="icon">↑</span>Withdraw</h3>
+      <p class="desc">Take money out of an account (fails with 409 if it would go negative).</p>
+      <div class="field"><label>Account ID</label><input id="wd-accountId" list="accountIds" /></div>
+      <div class="field"><label>Amount</label><input id="wd-amount" value="50.00" /></div>
+      <div class="actions"><button class="run" onclick="withdraw()">Withdraw</button></div>
+      <div class="resp" id="wd-resp"></div>
+    </div>
+
+    <!-- Transfer -->
+    <div class="card">
+      <h3><span class="icon">⇄</span>Transfer to another client</h3>
+      <p class="desc">Pay another client <em>at this bank</em> — instant, same-currency, no saga needed.</p>
+      <div class="field"><label>From account ID</label><input id="tr-from" list="accountIds" /></div>
+      <div class="field"><label>To account ID</label><input id="tr-to" list="accountIds" /></div>
+      <div class="field"><label>Amount</label><input id="tr-amount" value="25.00" /></div>
+      <div class="actions"><button class="run" onclick="transfer()">Transfer</button></div>
+      <div class="resp" id="tr-resp"></div>
+    </div>
+
+    <!-- Convert -->
+    <div class="card">
+      <h3><span class="icon">💱</span>Convert currency</h3>
+      <p class="desc">"Sell balance" — move money between two of the <em>same client's</em> own accounts at the live FX rate. Needs at least one price tick to have published (wait a couple of seconds after startup).</p>
+      <div class="field"><label>From account ID</label><input id="cv-from" list="accountIds" /></div>
+      <div class="field"><label>To account ID (different currency)</label><input id="cv-to" list="accountIds" /></div>
+      <div class="field"><label>Amount (in "from" currency)</label><input id="cv-amount" value="100.00" /></div>
+      <div class="actions"><button class="run" onclick="convert()">Convert</button></div>
+      <div class="resp" id="cv-resp"></div>
+    </div>
+
+    <!-- Payment -->
+    <div class="card">
+      <h3><span class="icon">🌍</span>Pay another bank</h3>
+      <p class="desc">Cross-border payment: fraud check → settlement saga → simulated bank clearing. Amounts over 500,000 deterministically fail clearing (test seam) so you can see the compensation path.</p>
+      <div class="row2">
+        <div class="field"><label>Client ID</label><input id="pay-clientId" value="alice" /></div>
+        <div class="field"><label>Country (2-letter)</label><input id="pay-country" value="US" maxlength="2" /></div>
+      </div>
+      <div class="field"><label>Source account ID</label><input id="pay-accountId" list="accountIds" /></div>
+      <div class="field"><label>Amount</label><input id="pay-amount" value="250.00" /></div>
+      <div class="actions"><button class="run" onclick="submitPayment()">Submit payment</button></div>
+      <div class="field"><label>Payment ID (to check status)</label><input id="pay-id" /></div>
+      <div class="actions"><button class="run" data-variant="get" onclick="getPayment()">Check status</button></div>
+      <div class="resp" id="pay-resp"></div>
+    </div>
+
+    <!-- Loan: originate -->
+    <div class="card">
+      <h3><span class="icon">💰</span>Take out a loan</h3>
+      <p class="desc">Pick a loan product — rate and term come from the product, not typed in. Principal is credited straight into the account. Interest accrues daily on a schedule — you won't see it move within this session, but the endpoint below shows the current accrued amount.</p>
+      <div class="field"><label>Client ID</label><input id="ln-clientId" value="alice" /></div>
+      <div class="field"><label>Account ID (disbursed to)</label><input id="ln-accountId" list="accountIds" /></div>
+      <div class="row2">
+        <div class="field"><label>Principal (how much to borrow)</label><input id="ln-principal" value="5000.00" /></div>
+        <div class="field"><label>Loan product</label>
+          <select id="ln-productType"><option value="">loading…</option></select>
+        </div>
+      </div>
+      <div class="actions"><button class="run" onclick="originateLoan()">Take out loan</button></div>
+      <div class="resp" id="ln-resp"></div>
+    </div>
+
+    <!-- Loan: view / repay -->
+    <div class="card">
+      <h3><span class="icon">📄</span>View / repay a loan</h3>
+      <p class="desc">Repayments apply to accrued interest first, then principal.</p>
+      <div class="field"><label>Loan ID</label><input id="lr-loanId" list="loanIds" /></div>
+      <div class="actions"><button class="run" data-variant="get" onclick="getLoan()">View loan</button></div>
+      <div class="field"><label>Repayment amount</label><input id="lr-amount" value="200.00" /></div>
+      <div class="actions"><button class="run" onclick="repayLoan()">Make repayment</button></div>
+      <div class="resp" id="lr-resp"></div>
+    </div>
+
+    <!-- FX order -->
+    <div class="card">
+      <h3><span class="icon">📈</span>FX trading desk — place order</h3>
+      <p class="desc">Submit a buy or sell on a currency pair. Post a SELL then a matching BUY at the same price/quantity to watch them fill each other.</p>
+      <div class="row2">
+        <div class="field"><label>Client ID</label><input id="fx-clientId" value="trader-1" /></div>
+        <div class="field"><label>Currency pair</label>
+          <select id="fx-pair">
+            <option>EUR/USD</option><option>GBP/USD</option><option>USD/JPY</option><option>USD/CHF</option><option>AUD/USD</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Side</label>
+          <select id="fx-side"><option>BUY</option><option>SELL</option></select>
+        </div>
+        <div class="field"><label>Quantity</label><input id="fx-quantity" value="10" /></div>
+      </div>
+      <div class="field"><label>Price</label><input id="fx-price" value="1.0800" /></div>
+      <div class="actions"><button class="run" onclick="submitOrder()">Submit order</button></div>
+      <div class="field"><label>Order ID (to check fill status)</label><input id="fx-orderId" /></div>
+      <div class="actions"><button class="run" data-variant="get" onclick="getOrder()">Check order</button></div>
+      <div class="resp" id="fx-resp"></div>
+    </div>
+
+  </div>
+
+  <section class="log">
+    <h2><span>Activity log</span><button onclick="clearLog()">clear</button></h2>
+    <div class="log-entries" id="logEntries"></div>
+  </section>
+
+</main>
+
+<footer>Talks directly to the API on this instance. Nothing here is sent anywhere else.</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+// ---- config ----
+$('apiBase').value = window.location.origin;
+try {
+  const savedToken = localStorage.getItem('bp_token');
+  if (savedToken) $('bearerToken').value = savedToken;
+} catch (e) {}
+$('bearerToken').addEventListener('input', () => {
+  try { localStorage.setItem('bp_token', $('bearerToken').value); } catch (e) {}
+});
+
+// ---- known accounts/loans state ----
+let known = { accounts: [], loans: [] };
+try { known = JSON.parse(localStorage.getItem('bp_known') || '') || known; } catch (e) {}
+function saveKnown() { try { localStorage.setItem('bp_known', JSON.stringify(known)); } catch (e) {} }
+
+function rememberAccount(acc) {
+  if (!acc || !acc.accountId) return;
+  known.accounts = known.accounts.filter(a => a.accountId !== acc.accountId);
+  known.accounts.unshift({ accountId: acc.accountId, clientId: acc.clientId, currency: acc.currency, accountType: acc.accountType });
+  known.accounts = known.accounts.slice(0, 24);
+  saveKnown(); renderKnown();
+}
+function rememberLoan(loan) {
+  if (!loan || !loan.loanId) return;
+  known.loans = known.loans.filter(l => l.loanId !== loan.loanId);
+  known.loans.unshift({ loanId: loan.loanId, clientId: loan.clientId });
+  known.loans = known.loans.slice(0, 24);
+  saveKnown(); renderKnown();
+}
+
+function renderKnown() {
+  const chips = $('chips');
+  const accDatalist = $('accountIds');
+  const loanDatalist = $('loanIds');
+  accDatalist.innerHTML = '';
+  loanDatalist.innerHTML = '';
+  known.accounts.forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.accountId;
+    accDatalist.appendChild(opt);
+  });
+  known.loans.forEach(l => {
+    const opt = document.createElement('option');
+    opt.value = l.loanId;
+    loanDatalist.appendChild(opt);
+  });
+
+  if (known.accounts.length === 0 && known.loans.length === 0) {
+    chips.innerHTML = '<span style="color:var(--text-dim);font-size:12px;">Nothing yet — open an account below, or click "Seed demo accounts".</span>';
+    return;
+  }
+  chips.innerHTML = '';
+  known.accounts.forEach(a => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.title = 'Click to copy account id';
+    chip.innerHTML = `<span class="label">${a.clientId}</span>${a.currency} · ${a.accountId.slice(0,8)}…`;
+    chip.onclick = () => copyToClipboard(a.accountId, chip);
+    chips.appendChild(chip);
+  });
+  known.loans.forEach(l => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.title = 'Click to copy loan id';
+    chip.style.background = '#fff7ed';
+    chip.style.borderColor = '#fed7aa';
+    chip.innerHTML = `<span class="label" style="color:#c2410c">loan · ${l.clientId}</span>${l.loanId.slice(0,8)}…`;
+    chip.onclick = () => copyToClipboard(l.loanId, chip);
+    chips.appendChild(chip);
+  });
+}
+function copyToClipboard(text, el) {
+  navigator.clipboard && navigator.clipboard.writeText(text).catch(() => {});
+  const original = el.style.background;
+  el.style.background = '#d1fae5';
+  setTimeout(() => { el.style.background = original; }, 300);
+}
+renderKnown();
+
+// ---- HTTP + logging ----
+function nowStr() {
+  const d = new Date();
+  return d.toTimeString().slice(0,8);
+}
+function logRequest(method, path, statusCode) {
+  const entries = $('logEntries');
+  const row = document.createElement('div');
+  row.className = 'log-entry';
+  const codeClass = statusCode >= 500 ? 'err5xx' : statusCode >= 400 ? 'err4xx' : 'ok2xx';
+  row.innerHTML = `<span class="time">${nowStr()}</span><span class="method ${method}">${method}</span><span class="path">${path}</span><span class="code ${codeClass}">${statusCode}</span>`;
+  entries.prepend(row);
+  while (entries.children.length > 60) entries.removeChild(entries.lastChild);
+}
+function clearLog() { $('logEntries').innerHTML = ''; }
+
+async function call(method, path, body) {
+  const base = $('apiBase').value.replace(/\/$/, '');
+  const headers = { 'Content-Type': 'application/json' };
+  const token = $('bearerToken').value.trim();
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  let res, text, json;
+  try {
+    res = await fetch(base + path, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (networkErr) {
+    logRequest(method, path, 0);
+    throw new Error('Network error — is the app reachable at ' + base + '? (' + networkErr.message + ')');
+  }
+  logRequest(method, path, res.status);
+  text = await res.text();
+  try { json = text ? JSON.parse(text) : {}; } catch (e) { json = { raw: text }; }
+  if (!res.ok) {
+    const err = new Error('HTTP ' + res.status);
+    err.body = json;
+    err.status = res.status;
+    throw err;
+  }
+  return json;
+}
+
+function showResp(elId, data, isError) {
+  const el = $(elId);
+  el.classList.add('show');
+  el.classList.toggle('err', !!isError);
+  const badge = `<span class="status-badge ${isError ? 'err' : 'ok'}">${isError ? 'ERROR' : 'OK'}</span>\n`;
+  el.textContent = '';
+  el.innerHTML = badge + escapeHtml(JSON.stringify(data, null, 2));
+  if (!isError) {
+    el.classList.remove('ok-flash'); void el.offsetWidth; el.classList.add('ok-flash');
+  }
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+function num(id) { return parseFloat($(id).value); }
+function str(id) { return $(id).value.trim(); }
+function uuid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+async function run(respId, fn) {
+  try {
+    const data = await fn();
+    showResp(respId, data, false);
+    return data;
+  } catch (e) {
+    showResp(respId, e.body || { error: e.message }, true);
+    return null;
+  }
+}
+
+// ---- Accounts ----
+async function openAccount() {
+  const data = await run('oa-resp', () => call('POST', '/v1/accounts', {
+    clientId: str('oa-clientId'),
+    accountType: str('oa-accountType'),
+    currency: str('oa-currency').toUpperCase(),
+    openingBalance: num('oa-openingBalance'),
+  }));
+  if (data) {
+    rememberAccount(data);
+    ['dep-accountId','wd-accountId','tr-from','pay-accountId','ln-accountId'].forEach(id => { if (!$(id).value) $(id).value = data.accountId; });
+  }
+}
+async function getAccount() {
+  await run('ga-resp', () => call('GET', '/v1/accounts/' + encodeURIComponent(str('ga-accountId'))));
+}
+async function listAccounts() {
+  const data = await run('ga-resp', () => call('GET', '/v1/accounts?clientId=' + encodeURIComponent(str('la-clientId'))));
+  if (Array.isArray(data)) data.forEach(rememberAccount);
+}
+
+// ---- Deposit / Withdraw ----
+async function deposit() {
+  const data = await run('dep-resp', () => call('POST', `/v1/accounts/${encodeURIComponent(str('dep-accountId'))}/deposit`, { amount: num('dep-amount') }));
+  if (data) rememberAccount(data);
+}
+async function withdraw() {
+  const data = await run('wd-resp', () => call('POST', `/v1/accounts/${encodeURIComponent(str('wd-accountId'))}/withdraw`, { amount: num('wd-amount') }));
+  if (data) rememberAccount(data);
+}
+
+// ---- Transfer ----
+async function transfer() {
+  await run('tr-resp', () => call('POST', '/v1/transfers', {
+    fromAccountId: str('tr-from'), toAccountId: str('tr-to'), amount: num('tr-amount'),
+  }));
+}
+
+// ---- Convert ----
+async function convert() {
+  const data = await run('cv-resp', () => call('POST', `/v1/accounts/${encodeURIComponent(str('cv-from'))}/convert`, {
+    toAccountId: str('cv-to'), amount: num('cv-amount'),
+  }));
+  if (data) rememberAccount(data);
+}
+
+// ---- Payments ----
+async function submitPayment() {
+  const data = await run('pay-resp', () => call('POST', '/v1/payments', {
+    clientId: str('pay-clientId'),
+    sourceAccountId: str('pay-accountId'),
+    amount: num('pay-amount'),
+    idempotencyKey: 'playground-' + uuid(),
+    country: str('pay-country').toUpperCase(),
+  }));
+  if (data && data.paymentId) $('pay-id').value = data.paymentId;
+}
+async function getPayment() {
+  await run('pay-resp', () => call('GET', '/v1/payments/' + encodeURIComponent(str('pay-id'))));
+}
+
+// ---- Loans ----
+async function loadLoanProducts() {
+  const select = $('ln-productType');
+  try {
+    const products = await call('GET', '/v1/loans/products');
+    select.innerHTML = '';
+    products.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.code;
+      opt.textContent = `${p.displayName} — ${p.interestRateAnnualPercent}% / ${p.termMonths}mo`;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    select.innerHTML = '<option value="">couldn\'t load — check API base</option>';
+  }
+}
+loadLoanProducts();
+
+async function originateLoan() {
+  const data = await run('ln-resp', () => call('POST', '/v1/loans', {
+    clientId: str('ln-clientId'),
+    accountId: str('ln-accountId'),
+    principal: num('ln-principal'),
+    productType: str('ln-productType'),
+  }));
+  if (data) { rememberLoan(data); $('lr-loanId').value = data.loanId; }
+}
+async function getLoan() {
+  await run('lr-resp', () => call('GET', '/v1/loans/' + encodeURIComponent(str('lr-loanId'))));
+}
+async function repayLoan() {
+  await run('lr-resp', () => call('POST', `/v1/loans/${encodeURIComponent(str('lr-loanId'))}/repay`, { amount: num('lr-amount') }));
+}
+
+// ---- FX orders ----
+async function submitOrder() {
+  const data = await run('fx-resp', () => call('POST', '/v1/orders', {
+    clientId: str('fx-clientId'),
+    currencyPair: str('fx-pair'),
+    side: str('fx-side'),
+    quantity: num('fx-quantity'),
+    price: num('fx-price'),
+  }));
+  if (data && data.orderId) $('fx-orderId').value = data.orderId;
+}
+async function getOrder() {
+  await run('fx-resp', () => call('GET', '/v1/orders/' + encodeURIComponent(str('fx-orderId'))));
+}
+
+// ---- Seed demo data ----
+async function seedDemo() {
+  const alice = await run('oa-resp', () => call('POST', '/v1/accounts', { clientId: 'alice', accountType: 'CHECKING', currency: 'USD', openingBalance: 1000.00 }));
+  if (alice) rememberAccount(alice);
+  const bob = await run('oa-resp', () => call('POST', '/v1/accounts', { clientId: 'bob', accountType: 'CHECKING', currency: 'USD', openingBalance: 0.00 }));
+  if (bob) rememberAccount(bob);
+  if (alice) {
+    ['dep-accountId','wd-accountId','tr-from','pay-accountId','ln-accountId','cv-from'].forEach(id => $(id).value = alice.accountId);
+  }
+  if (bob) { $('tr-to').value = bob.accountId; }
+}
+</script>
+
+</body>
+</html>

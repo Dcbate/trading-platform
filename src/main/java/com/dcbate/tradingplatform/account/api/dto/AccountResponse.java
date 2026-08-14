@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+/** API-facing view of an {@code Account}, including its live {@code balance}. */
 public record AccountResponse(
         UUID accountId,
         String clientId,

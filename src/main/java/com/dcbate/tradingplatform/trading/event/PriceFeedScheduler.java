@@ -7,6 +7,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/**
+ * Cron-driven trigger for {@link PriceFeedService#publishTick}, one tick per configured currency
+ * pair on every run. A single pair's publish failure is caught and logged per-pair so one bad
+ * tick can't stop the rest of the pairs from ticking in the same cycle.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor

@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+/** Request to move money between two clients' accounts at this bank — see {@code TransferServiceImpl}. */
 public record TransferRequest(
         @NotNull UUID fromAccountId,
         @NotNull UUID toAccountId,

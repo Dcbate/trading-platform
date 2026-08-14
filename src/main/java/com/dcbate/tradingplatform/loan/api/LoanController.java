@@ -1,5 +1,7 @@
 package com.dcbate.tradingplatform.loan.api;
 
+import com.dcbate.tradingplatform.domain.LoanProductType;
+import com.dcbate.tradingplatform.loan.api.dto.LoanProductResponse;
 import com.dcbate.tradingplatform.loan.api.dto.LoanRequest;
 import com.dcbate.tradingplatform.loan.api.dto.LoanResponse;
 import com.dcbate.tradingplatform.loan.service.LoanService;
@@ -10,6 +12,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +38,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class LoanController {
 
     private final LoanService loanService;
+
+    @GetMapping("/products")
+    @Operation(summary = "List the bank's fixed loan product catalog (rate and term per product)")
+    public ResponseEntity<List<LoanProductResponse>> listProducts() {
+        return ResponseEntity.ok(Arrays.stream(LoanProductType.values()).map(LoanProductResponse::from).toList());
+    }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('CLIENT', 'ADMIN')")

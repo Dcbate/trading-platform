@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+/** API-facing view of a completed or failed {@code Transfer}. */
 public record TransferResponse(
         UUID transferId,
         UUID fromAccountId,
