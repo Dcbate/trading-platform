@@ -2,8 +2,8 @@ package com.dcbate.tradingplatform.actuator;
 
 import com.dcbate.tradingplatform.trading.service.MatchingEngineService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.stereotype.Component;
 
 /** Exposes current order-book depth via {@code /actuator/health} for at-a-glance operability. */

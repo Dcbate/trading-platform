@@ -1,7 +1,6 @@
 package com.dcbate.tradingplatform.chronicle;
 
 import com.dcbate.tradingplatform.kafka.event.TradeEvent;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -10,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.queue.ChronicleQueue;
 import net.openhft.chronicle.queue.ExcerptTailer;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * @see TradeJournalReader

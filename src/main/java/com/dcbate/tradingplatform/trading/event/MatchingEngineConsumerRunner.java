@@ -4,7 +4,6 @@ import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.config.MatchingEngineProperties;
 import com.dcbate.tradingplatform.kafka.event.OrderValidatedEvent;
 import com.dcbate.tradingplatform.trading.service.MatchingEngineService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
@@ -22,6 +21,7 @@ import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Owns the matching engine's dedicated Kafka poll loop (Low-Latency Patterns 1, 3 and 4): a raw

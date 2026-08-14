@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.4</version>
+        <version>4.1.0</version>
         <relativePath/>
     </parent>
 
@@ -83,6 +83,11 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
+        <!-- Boot 4 split Flyway autoconfiguration out of spring-boot-autoconfigure into its own module. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-flyway</artifactId>
+        </dependency>
 
         <!-- Redis -->
         <dependency>
@@ -95,10 +100,12 @@
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
         </dependency>
-        <!-- Backs @RetryableTopic's backoff policy (Notification Service retry + DLQ) -->
+        <!-- Backs @RetryableTopic's backoff policy (Notification Service retry + DLQ). Spring
+             Boot 4's parent BOM no longer manages this version, unlike 3.x — pinned explicitly. -->
         <dependency>
             <groupId>org.springframework.retry</groupId>
             <artifactId>spring-retry</artifactId>
+            <version>2.0.5</version>
         </dependency>
 
         <!-- Chronicle Queue (off-heap trade journal) -->

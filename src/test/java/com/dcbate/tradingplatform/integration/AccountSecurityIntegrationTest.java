@@ -16,17 +16,15 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.client.RestTestClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -72,8 +70,15 @@ class AccountSecurityIntegrationTest {
         registry.add("chronicle.trade-journal.path", () -> "target/test-chronicle/" + UUID.randomUUID());
     }
 
-    @Autowired
-    private TestRestTemplate restTemplate;
+    @LocalServerPort
+    private int port;
+
+    private RestTestClient client;
+
+    @BeforeEach
+    void setUpClient() {
+        client = RestTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
+    }
 
     private String jwtFor(String clientId, String... roles) throws Exception {
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
@@ -86,43 +91,42 @@ class AccountSecurityIntegrationTest {
         return signedJwt.serialize();
     }
 
-    private HttpEntity<?> authorized(String token) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(token);
-        return new HttpEntity<>(headers);
-    }
-
-    private HttpEntity<Object> authorized(String token, Object body) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(token);
-        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-        return new HttpEntity<>(body, headers);
-    }
-
     @Test
     void ownerCanReadTheirAccountButAnotherClientIsForbidden() throws Exception {
         String clientAToken = jwtFor("client-A", "CLIENT");
         String clientBToken = jwtFor("client-B", "CLIENT");
 
         AccountRequest openRequest = new AccountRequest("client-A", AccountType.CHECKING, "USD", new BigDecimal("500.00"));
-        ResponseEntity<AccountResponse> openResponse = restTemplate.exchange(
-                "/v1/accounts", HttpMethod.POST, authorized(clientAToken, openRequest), AccountResponse.class);
-        assertThat(openResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        UUID accountId = openResponse.getBody().accountId();
+        AccountResponse opened = client.post().uri("/v1/accounts")
+                .header("Authorization", "Bearer " + clientAToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(openRequest)
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.CREATED)
+                .expectBody(AccountResponse.class)
+                .returnResult()
+                .getResponseBody();
+        UUID accountId = opened.accountId();
 
-        ResponseEntity<AccountResponse> ownerRead = restTemplate.exchange(
-                "/v1/accounts/{id}", HttpMethod.GET, authorized(clientAToken), AccountResponse.class, accountId);
-        assertThat(ownerRead.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(ownerRead.getBody().clientId()).isEqualTo("client-A");
+        AccountResponse ownerRead = client.get().uri("/v1/accounts/{id}", accountId)
+                .header("Authorization", "Bearer " + clientAToken)
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.OK)
+                .expectBody(AccountResponse.class)
+                .returnResult()
+                .getResponseBody();
+        assertThat(ownerRead.clientId()).isEqualTo("client-A");
 
-        ResponseEntity<String> strangerRead = restTemplate.exchange(
-                "/v1/accounts/{id}", HttpMethod.GET, authorized(clientBToken), String.class, accountId);
-        assertThat(strangerRead.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        client.get().uri("/v1/accounts/{id}", accountId)
+                .header("Authorization", "Bearer " + clientBToken)
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
     void requestWithoutATokenIsUnauthorized() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v1/accounts/{id}", String.class, UUID.randomUUID());
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        client.get().uri("/v1/accounts/{id}", UUID.randomUUID())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 }

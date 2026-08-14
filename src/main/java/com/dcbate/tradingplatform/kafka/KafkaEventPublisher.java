@@ -1,15 +1,16 @@
 package com.dcbate.tradingplatform.kafka;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Thin JSON-over-Kafka publisher shared by every producer in the platform. A failed send is
@@ -41,18 +42,28 @@ public class KafkaEventPublisher {
     public void publish(String topic, String key, Object event) {
         try {
             send(topic, key, objectMapper.writeValueAsString(event));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.error("Failed to serialize event for topic={} key={}: {}", topic, key, e.getMessage());
         }
     }
 
     private void send(String topic, String key, String payload) {
-        kafkaTemplate.send(topic, key, payload).whenComplete((result, ex) -> {
-            if (ex != null) {
-                log.error("Failed to publish to topic={} key={}: {}", topic, key, ex.getMessage());
-                enqueueForRetry(topic, key, payload);
-            }
-        });
+        try {
+            kafkaTemplate.send(topic, key, payload).whenComplete((result, ex) -> {
+                if (ex != null) {
+                    log.error("Failed to publish to topic={} key={}: {}", topic, key, ex.getMessage());
+                    enqueueForRetry(topic, key, payload);
+                }
+            });
+        } catch (KafkaException e) {
+            // send() itself blocks the caller (up to the producer's max.block.ms, see
+            // KafkaConfig.producerFactory) waiting on topic metadata before it can even return a
+            // Future; if that wait times out, Spring wraps it and throws synchronously rather than
+            // surfacing via whenComplete. Same fallback path as an async failure, so a slow/
+            // unavailable broker never stalls the calling HTTP request.
+            log.error("Failed to submit send for topic={} key={}: {}", topic, key, e.getMessage());
+            enqueueForRetry(topic, key, payload);
+        }
     }
 
     private void enqueueForRetry(String topic, String key, String payload) {

@@ -1,13 +1,13 @@
 package com.dcbate.tradingplatform.chronicle;
 
 import com.dcbate.tradingplatform.kafka.event.TradeEvent;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.queue.ChronicleQueue;
 import net.openhft.chronicle.queue.ExcerptAppender;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * @see TradeJournalWriter
@@ -31,7 +31,7 @@ public class ChronicleTradeJournalWriter implements TradeJournalWriter {
             try (ExcerptAppender appender = tradeJournalQueue.createAppender()) {
                 appender.writeText(payload);
             }
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.error("Failed to serialize trade {} for journal append: {}", trade.tradeId(), e.getMessage());
         }
     }

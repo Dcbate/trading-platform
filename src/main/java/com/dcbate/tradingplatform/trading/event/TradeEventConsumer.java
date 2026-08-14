@@ -2,12 +2,12 @@ package com.dcbate.tradingplatform.trading.event;
 
 import com.dcbate.tradingplatform.kafka.event.TradeEvent;
 import com.dcbate.tradingplatform.trading.service.ExecutionService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Batch-consumes {@code trades} and hands each fill to the Execution Service. Processed

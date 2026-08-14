@@ -40,6 +40,12 @@ public class KafkaConfig {
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.put(ProducerConfig.ACKS_CONFIG, "all");
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        // send() blocks the calling thread (an HTTP request thread, for callers off KafkaEventPublisher)
+        // waiting on topic metadata before it can even hand back a Future. The client default is 60s;
+        // fail fast instead so a broker that's briefly slow to resolve metadata (e.g. right after topics
+        // are first created) can't stall a request for far longer than any caller should wait.
+        // KafkaEventPublisher already treats this the same as any other send failure and queues it for retry.
+        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, 3000);
         return new DefaultKafkaProducerFactory<>(props);
     }
 

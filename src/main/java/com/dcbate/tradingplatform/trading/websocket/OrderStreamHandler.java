@@ -1,7 +1,6 @@
 package com.dcbate.tradingplatform.trading.websocket;
 
 import com.dcbate.tradingplatform.trading.api.dto.OrderResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,6 +12,8 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Broadcasts order status updates to every subscribed client (Low-Latency Pattern 5). Sends are
@@ -52,7 +53,7 @@ public class OrderStreamHandler extends TextWebSocketHandler {
             if (session.isOpen()) {
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(update)));
             }
-        } catch (IOException e) {
+        } catch (IOException | JacksonException e) {
             log.warn("Failed to push order update to sessionId={}: {}", session.getId(), e.getMessage());
         }
     }

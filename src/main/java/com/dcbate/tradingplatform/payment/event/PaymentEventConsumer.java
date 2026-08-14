@@ -2,12 +2,12 @@ package com.dcbate.tradingplatform.payment.event;
 
 import com.dcbate.tradingplatform.kafka.event.PaymentEvent;
 import com.dcbate.tradingplatform.payment.service.FraudDetectionService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /** Batch-consumes {@code payments} and hands each event to the Fraud Detection Service. */
 @Slf4j

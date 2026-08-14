@@ -2,12 +2,12 @@ package com.dcbate.tradingplatform.trading.event;
 
 import com.dcbate.tradingplatform.kafka.event.OrderEvent;
 import com.dcbate.tradingplatform.trading.service.RiskService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /** Batch-consumes {@code orders} and hands each event to the Risk Service (Low-Latency Pattern 3). */
 @Slf4j

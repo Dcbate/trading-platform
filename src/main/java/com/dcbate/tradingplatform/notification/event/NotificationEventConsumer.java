@@ -2,14 +2,14 @@ package com.dcbate.tradingplatform.notification.event;
 
 import com.dcbate.tradingplatform.kafka.event.NotificationEvent;
 import com.dcbate.tradingplatform.notification.service.NotificationService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.kafka.annotation.BackOff;
 import org.springframework.kafka.annotation.DltHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.annotation.RetryableTopic;
-import org.springframework.retry.annotation.Backoff;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Delivers {@code notifications} with the spec's exponential backoff (1s, 2s, 4s, 8s, 16s — five
@@ -26,7 +26,7 @@ public class NotificationEventConsumer {
 
     @RetryableTopic(
             attempts = "6",
-            backoff = @Backoff(delay = 1000, multiplier = 2.0, maxDelay = 16000),
+            backOff = @BackOff(delay = 1000, multiplier = 2.0, maxDelay = 16000),
             dltTopicSuffix = "-dlq",
             listenerContainerFactory = "retryableListenerFactory")
     @KafkaListener(
