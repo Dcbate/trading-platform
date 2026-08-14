@@ -11,12 +11,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
 import com.dcbate.tradingplatform.account.service.AccountService;
+import com.dcbate.tradingplatform.config.TradingProperties;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.domain.AccountType;
 import com.dcbate.tradingplatform.exception.AccountNotFoundException;
 import com.dcbate.tradingplatform.exception.GlobalExceptionHandler;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +45,10 @@ class AccountControllerTest {
     @BeforeEach
     void setUp() {
         objectMapper = JsonMapper.builder().findAndAddModules().build();
-        mockMvc = MockMvcBuilders.standaloneSetup(new AccountController(accountService))
+        TradingProperties tradingProperties = new TradingProperties(
+                List.of("EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD"),
+                new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
+        mockMvc = MockMvcBuilders.standaloneSetup(new AccountController(accountService, tradingProperties))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(new JacksonJsonHttpMessageConverter(objectMapper))
                 .build();
@@ -51,6 +56,15 @@ class AccountControllerTest {
 
     private Authentication clientAuth(String clientId) {
         return new TestingAuthenticationToken(clientId, null, "ROLE_CLIENT");
+    }
+
+    @Test
+    void listCurrenciesReturnsDistinctSortedCodesFromCurrencyPairs() throws Exception {
+        mockMvc.perform(get("/v1/accounts/currencies"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(6))
+                .andExpect(jsonPath("$[0]").value("AUD"))
+                .andExpect(jsonPath("$[1]").value("CHF"));
     }
 
     @Test

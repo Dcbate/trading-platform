@@ -357,7 +357,7 @@
         </div>
       </div>
       <div class="row2">
-        <div class="field"><label>Currency</label><input id="oa-currency" value="USD" maxlength="3" /></div>
+        <div class="field"><label>Currency</label><select id="oa-currency"><option value="">loading…</option></select></div>
         <div class="field"><label>Opening balance</label><input id="oa-openingBalance" value="1000.00" /></div>
       </div>
       <div class="actions"><button class="run" onclick="openAccount()">Open account</button></div>
@@ -716,6 +716,25 @@ async function submitPayment() {
 async function getPayment() {
   await run('pay-resp', () => call('GET', '/v1/payments/' + encodeURIComponent(str('pay-id'))));
 }
+
+// ---- Accounts ----
+async function loadCurrencies() {
+  const select = $('oa-currency');
+  try {
+    const currencies = await call('GET', '/v1/accounts/currencies');
+    select.innerHTML = '';
+    currencies.forEach(code => {
+      const opt = document.createElement('option');
+      opt.value = code;
+      opt.textContent = code;
+      select.appendChild(opt);
+    });
+    if (currencies.includes('USD')) select.value = 'USD';
+  } catch (e) {
+    select.innerHTML = '<option value="">couldn\'t load — check API base</option>';
+  }
+}
+loadCurrencies();
 
 // ---- Loans ----
 async function loadLoanProducts() {

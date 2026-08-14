@@ -20,7 +20,7 @@
     <properties>
         <java.version>21</java.version>
         <chronicle-queue.version>5.26ea3</chronicle-queue.version>
-        <springdoc.version>2.6.0</springdoc.version>
+        <springdoc.version>3.0.0</springdoc.version>
         <testcontainers.version>1.20.2</testcontainers.version>
         <!-- Chronicle Queue accesses JDK-internal APIs (off-heap memory, Unsafe) that are
              encapsulated by the module system on JDK 17+; these opens are required at runtime. -->
@@ -99,6 +99,12 @@
         <dependency>
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
+        </dependency>
+        <!-- Boot 4 split Kafka autoconfiguration (incl. the KafkaAdmin bean that provisions
+             NewTopic beans on startup) out of spring-boot-autoconfigure into its own module. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-kafka</artifactId>
         </dependency>
         <!-- Backs @RetryableTopic's backoff policy (Notification Service retry + DLQ). Spring
              Boot 4's parent BOM no longer manages this version, unlike 3.x — pinned explicitly. -->

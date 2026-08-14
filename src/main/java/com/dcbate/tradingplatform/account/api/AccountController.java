@@ -5,11 +5,14 @@ import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
 import com.dcbate.tradingplatform.account.api.dto.AccountTransactionRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.account.service.AccountService;
+import com.dcbate.tradingplatform.config.TradingProperties;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.Arrays;
 import java.util.List;
+import java.util.TreeSet;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +42,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class AccountController {
 
     private final AccountService accountService;
+    private final TradingProperties tradingProperties;
+
+    @GetMapping("/currencies")
+    @Operation(summary = "List the currencies the bank offers accounts in (derived from the FX desk's traded currency pairs)")
+    public ResponseEntity<List<String>> listCurrencies() {
+        TreeSet<String> currencies = new TreeSet<>();
+        tradingProperties.currencyPairs().forEach(pair -> currencies.addAll(Arrays.asList(pair.split("/"))));
+        return ResponseEntity.ok(List.copyOf(currencies));
+    }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('CLIENT', 'ADMIN')")
