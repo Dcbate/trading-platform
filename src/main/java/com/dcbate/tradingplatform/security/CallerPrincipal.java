@@ -17,10 +17,15 @@ import org.springframework.security.core.GrantedAuthority;
  * <p>Controllers resolve {@code authentication} via a plain {@code Authentication} method
  * parameter, which Spring MVC binds from {@code HttpServletRequest.getUserPrincipal()} — and by
  * design that returns {@code null} for an anonymous principal (Spring Security deliberately
- * doesn't treat "anonymous" as "authenticated" there). That's only reachable in the {@code dev}
- * profile: the {@code !dev} JWT filter chain requires real authentication before a request ever
- * reaches a controller, so {@code authentication} can't be null there. Treating null as staff
- * mirrors dev's existing convenience of granting the anonymous principal every role.
+ * doesn't treat "anonymous" as "authenticated" there). In the {@code dev} profile that's reachable
+ * on every endpoint (the whole filter chain permits all). In the {@code !dev} profile it's
+ * reachable only on the specific paths {@code SecurityConfig} explicitly permits without a JWT —
+ * currently {@code /v1/game/**}, since Game Mode is playable without an account (see
+ * docs/GAME_MODE.md §6/§7) — every other endpoint's {@code !dev} chain still requires real
+ * authentication before a request reaches a controller. Treating null as staff mirrors dev's
+ * existing convenience of granting the anonymous principal every role; for Game Mode specifically
+ * it's also what lets an anonymous request supply its own (guest-generated) {@code clientId}
+ * without a real identity to check it against — see {@code GameServiceImpl.startSession}.
  */
 public record CallerPrincipal(String clientId, boolean staff) {
 

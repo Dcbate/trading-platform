@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
+import com.dcbate.tradingplatform.config.TradingProperties;
 import com.dcbate.tradingplatform.domain.Account;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.domain.AccountType;
@@ -18,6 +19,7 @@ import com.dcbate.tradingplatform.domain.OrderStatus;
 import com.dcbate.tradingplatform.domain.Position;
 import com.dcbate.tradingplatform.exception.InsufficientFundsException;
 import com.dcbate.tradingplatform.exception.InsufficientPositionException;
+import com.dcbate.tradingplatform.exception.InvalidOrderQuantityException;
 import com.dcbate.tradingplatform.exception.OrderNotFoundException;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.kafka.event.OrderEvent;
@@ -64,7 +66,9 @@ class OrderServiceImplTest {
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
                 "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
                 "account-activity", "transfers", "loans");
-        orderService = new OrderServiceImpl(orderRepository, accountRepository, positionRepository, kafkaEventPublisher, topics);
+        TradingProperties tradingProperties = new TradingProperties(
+                java.util.List.of("EUR/USD"), java.util.List.of("AAPL"), new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
+        orderService = new OrderServiceImpl(orderRepository, accountRepository, positionRepository, kafkaEventPublisher, topics, tradingProperties);
     }
 
     private OrderRequest fxRequest() {
@@ -123,6 +127,23 @@ class OrderServiceImplTest {
 
         assertThat(response.accountId()).isEqualTo(accountId);
         assertThat(response.status()).isEqualTo(OrderStatus.PENDING);
+    }
+
+    @Test
+    void submitStockOrderWithFractionalSharesThrows() {
+        OrderRequest request = new OrderRequest("client-1", "AAPL", OrderSide.BUY, new BigDecimal("2.5"), new BigDecimal("190.00"), null);
+
+        assertThatThrownBy(() -> orderService.submitOrder(request, owner)).isInstanceOf(InvalidOrderQuantityException.class);
+    }
+
+    @Test
+    void submitFxOrderWithFractionalQuantitySucceeds() {
+        when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+        OrderRequest request = new OrderRequest("client-1", "EUR/USD", OrderSide.BUY, new BigDecimal("10.50"), new BigDecimal("1.08"), null);
+
+        OrderResponse response = orderService.submitOrder(request, owner);
+
+        assertThat(response.quantity()).isEqualByComparingTo("10.50");
     }
 
     @Test

@@ -30,6 +30,11 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, List.of(e.getMessage()), request);
     }
 
+    @ExceptionHandler(InvalidOrderQuantityException.class)
+    public ResponseEntity<ApiError> handleBadRequest(RuntimeException e, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, List.of(e.getMessage()), request);
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException e, HttpServletRequest request) {
         return build(HttpStatus.FORBIDDEN, List.of("Access denied"), request);

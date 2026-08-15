@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Gamepad2, Trophy, Target, X } from 'lucide-react'
 import { apiErrorMessage } from '../api/client'
-import { useAuth } from '../hooks/useAuth'
+import { useGameClientId } from '../hooks/useGameClientId'
 import { useGameDifficulties, useGameStats, useStartGame } from '../hooks/useGame'
 import { formatMoney } from '../lib/format'
 import { pageTitle, listSection } from '../lib/styles'
@@ -48,10 +48,10 @@ function DifficultyCard({ difficulty, onPlay, isPending }: { difficulty: GameDif
 }
 
 export function GameLobbyPage() {
-  const user = useAuth()
+  const { clientId, isGuest } = useGameClientId()
   const navigate = useNavigate()
   const { data: difficulties } = useGameDifficulties()
-  const { data: stats } = useGameStats(user?.clientId)
+  const { data: stats } = useGameStats(clientId)
   const startGame = useStartGame()
   const [showHint, setShowHint] = useState(() => typeof window !== 'undefined' && !localStorage.getItem(HINT_SEEN_KEY))
 
@@ -61,10 +61,13 @@ export function GameLobbyPage() {
   }
 
   function play(difficulty: GameDifficultyCode) {
-    startGame.mutate(difficulty, {
-      onSuccess: (session) => navigate(`/game/play/${session.sessionId}`),
-      onError: (error) => toast.error(apiErrorMessage(error)),
-    })
+    startGame.mutate(
+      { clientId, difficulty },
+      {
+        onSuccess: (session) => navigate(`/game/play/${session.sessionId}`),
+        onError: (error) => toast.error(apiErrorMessage(error)),
+      },
+    )
   }
 
   return (
@@ -78,6 +81,12 @@ export function GameLobbyPage() {
           <p className="text-sm text-ink-400">Practice with fake money and a real countdown — nothing here touches your real accounts.</p>
         </div>
       </div>
+
+      {isGuest && (
+        <p className="text-xs text-ink-400">
+          Playing as a guest — your stats are saved on this device. <Link to="/signup" className="font-semibold text-primary-600 hover:text-primary-700">Sign up</Link> to keep them for good and unlock real banking too.
+        </p>
+      )}
 
       {showHint && (
         <div className="flex items-start gap-3 rounded-xl border border-primary-100 bg-primary-50 p-4 text-sm text-ink-700 dark:border-primary-500/20 dark:bg-primary-500/10">

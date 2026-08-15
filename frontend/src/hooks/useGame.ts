@@ -33,8 +33,8 @@ export function useGameMarket(difficulty: GameDifficultyCode | undefined) {
 export function useStartGame() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (difficulty: GameDifficultyCode) =>
-      apiClient.post<GameSessionResponse>('/v1/game/sessions', { difficulty }).then((r) => r.data),
+    mutationFn: ({ clientId, difficulty }: { clientId: string; difficulty: GameDifficultyCode }) =>
+      apiClient.post<GameSessionResponse>('/v1/game/sessions', { clientId, difficulty }).then((r) => r.data),
     onSuccess: (data) => {
       queryClient.setQueryData(['game', 'session', data.sessionId], data)
     },

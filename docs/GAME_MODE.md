@@ -96,12 +96,25 @@ client's data anywhere, see `CallerPrincipal.requireOwner`) or invented names an
 FX bid/ask spreads and stock fundamentals). "Your best runs" is the honest version of a
 leaderboard for a single-player game with no other real players in it yet.
 
-## 7. What's out of scope, stated not silently dropped
+## 7. Playable without an account
+
+Game Mode doesn't require logging in — `/v1/game/**` is on `SecurityConfig`'s permitAll list (see
+`CallerPrincipal`'s javadoc for exactly what that means for `Authentication` resolution), and none
+of `GameController`'s methods carry a `@PreAuthorize`, unlike every other client-facing endpoint in
+the app. A first-time visitor gets a `guest-<uuid>` id generated once and persisted in
+`localStorage` (`frontend/src/lib/guestId.ts`), used as their `clientId` exactly the way a real
+client's would be — so "your stats" (§6) still means something across reloads, just scoped to that
+browser rather than a real account. `useGameClientId` prefers a real logged-in `clientId` when one
+exists, so nothing changes for a logged-in client playing normally.
+
+This was a deliberate reversal of an earlier, more restrictive scoping decision. The tradeoff is
+real: a guest's stats live only in that browser's `localStorage` (clearing site data loses them,
+and they don't follow you to another device) — the lobby says as much and links to sign-up for
+anyone who wants that history to actually persist.
+
+## 8. What's out of scope, stated not silently dropped
 
 - No multi-step in-app tutorial modal — a short first-time hint banner on the game screen instead.
 - No "Share" button — nothing real to share to.
 - No literal leverage multiplier or margin-call liquidation (see §2).
 - No global/social leaderboard (see §6).
-- Requires being logged in — Game Mode's entry point lives in the app's sidebar nav (plus a
-  teaser link on the login screen), not as a true pre-login guest mode, since "your stats" needs
-  a persistent identity to mean anything.

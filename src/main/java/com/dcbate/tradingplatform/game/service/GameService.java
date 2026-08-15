@@ -18,8 +18,8 @@ import java.util.UUID;
  */
 public interface GameService {
 
-    /** Starts a new session, or returns the client's existing in-progress one if they already have one. */
-    GameSessionResponse startSession(GameDifficulty difficulty, CallerPrincipal caller);
+    /** Starts a new session for {@code clientId}, or returns their existing in-progress one if they already have one. */
+    GameSessionResponse startSession(String clientId, GameDifficulty difficulty, CallerPrincipal caller);
 
     GameSessionResponse getSession(UUID sessionId, CallerPrincipal caller);
 

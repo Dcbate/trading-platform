@@ -9,7 +9,7 @@ import { usePositions } from '../hooks/usePositions'
 import { TransactionTable, type Column } from '../components/TransactionTable'
 import { Badge } from '../components/Badge'
 import { btnSuccess, btnDanger, card, input, label, pageTitle, sectionTitle } from '../lib/styles'
-import { accountTypeLabel, formatMoney } from '../lib/format'
+import { accountTypeLabel, formatMoney, formatQuantity } from '../lib/format'
 import type { OrderResponse, OrderSide, PositionResponse } from '../types/api'
 
 // US-listed shares trade in USD everywhere, including for a UK client — this isn't the account's
@@ -86,10 +86,10 @@ function OrderForm({ accountId, symbols, priceFor }: { accountId: string; symbol
         <label className={label}>Shares</label>
         <input
           type="number"
-          min="0.00000001"
-          step="any"
+          min="1"
+          step="1"
           value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
+          onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ''))}
           className={`w-28 ${input}`}
           required
         />
@@ -125,7 +125,7 @@ export function TradingPage() {
   const orderColumns: Column<OrderResponse>[] = [
     { header: 'Symbol', render: (o) => <span className="font-semibold text-ink-900">{o.currencyPair}</span> },
     { header: 'Side', render: (o) => <Badge variant={o.side === 'BUY' ? 'success' : 'error'}>{o.side}</Badge> },
-    { header: 'Shares', render: (o) => o.quantity },
+    { header: 'Shares', render: (o) => formatQuantity(o.quantity) },
     { header: 'Price', render: (o) => <span className="font-mono">{usd(o.price)}</span> },
     {
       header: 'Status',
@@ -138,7 +138,7 @@ export function TradingPage() {
 
   const positionColumns: Column<PositionResponse>[] = [
     { header: 'Symbol', render: (p) => <span className="font-semibold text-ink-900">{p.symbol}</span> },
-    { header: 'Shares', render: (p) => p.quantity },
+    { header: 'Shares', render: (p) => formatQuantity(p.quantity) },
     { header: 'Avg cost', render: (p) => <span className="font-mono">{usd(p.avgCost)}</span> },
     { header: 'Current price', render: (p) => (priceFor(p.symbol) ? <span className="font-mono">{usd(priceFor(p.symbol)!)}</span> : '—') },
     {

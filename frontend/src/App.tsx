@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { GameRoute } from './components/GameRoute'
 import { LoginPage } from './pages/LoginPage'
 import { SignupPage } from './pages/SignupPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -11,6 +12,8 @@ import { LoansPage } from './pages/LoansPage'
 import { FXMarketsPage } from './pages/FXMarketsPage'
 import { TradingPage } from './pages/TradingPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { GameLobbyPage } from './pages/GameLobbyPage'
+import { GamePlayPage } from './pages/GamePlayPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +32,10 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route element={<GameRoute />}>
+            <Route path="/game" element={<GameLobbyPage />} />
+            <Route path="/game/play/:sessionId" element={<GamePlayPage />} />
+          </Route>
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/accounts" element={<AccountsPage />} />

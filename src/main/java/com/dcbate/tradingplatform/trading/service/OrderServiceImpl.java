@@ -2,6 +2,7 @@ package com.dcbate.tradingplatform.trading.service;
 
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
+import com.dcbate.tradingplatform.config.TradingProperties;
 import com.dcbate.tradingplatform.domain.Account;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.domain.Order;
@@ -12,6 +13,7 @@ import com.dcbate.tradingplatform.exception.AccountNotActiveException;
 import com.dcbate.tradingplatform.exception.AccountNotFoundException;
 import com.dcbate.tradingplatform.exception.InsufficientFundsException;
 import com.dcbate.tradingplatform.exception.InsufficientPositionException;
+import com.dcbate.tradingplatform.exception.InvalidOrderQuantityException;
 import com.dcbate.tradingplatform.exception.OrderNotFoundException;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.kafka.event.OrderEvent;
@@ -40,11 +42,18 @@ public class OrderServiceImpl implements OrderService {
     private final PositionRepository positionRepository;
     private final KafkaEventPublisher kafkaEventPublisher;
     private final KafkaTopicsProperties topics;
+    private final TradingProperties tradingProperties;
 
     @Override
     @Transactional
     public OrderResponse submitOrder(OrderRequest request, CallerPrincipal caller) {
         caller.requireOwner(request.clientId());
+        // A currency amount is legitimately fractional (buy 1500.50 EUR); a share count isn't —
+        // only stock symbols get this check, an FX pair's quantity is untouched.
+        if (tradingProperties.stockSymbols().contains(request.currencyPair())
+                && request.quantity().stripTrailingZeros().scale() > 0) {
+            throw new InvalidOrderQuantityException(request.currencyPair(), request.quantity());
+        }
         if (request.accountId() != null) {
             checkFundingAccount(request, caller);
         }

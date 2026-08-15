@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useAuth } from '../hooks/useAuth'
 import { useAccounts, useBalanceSummary } from '../hooks/useAccounts'
 import { useLoans } from '../hooks/useLoans'
@@ -7,8 +6,56 @@ import { AccountRow } from '../components/AccountCard'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/appStore'
 import { pageTitle, sectionTitle, listSection, btnGhostSm } from '../lib/styles'
-import { formatMoney } from '../lib/format'
+import { accountTypeLabel, formatMoney } from '../lib/format'
 import { Percent, Archive } from 'lucide-react'
+import type { AccountResponse } from '../types/api'
+
+// Solid fills for the balance bars below — a step more saturated than AccountCard's icon-chip
+// tint, since a thin bar needs more contrast against the canvas to read clearly.
+const barColor: Record<AccountResponse['accountType'], string> = {
+  CHECKING: 'bg-primary-500',
+  SAVINGS: 'bg-success-500',
+  FX_TRADING: 'bg-secondary-500',
+  BROKERAGE: 'bg-warning-500',
+}
+
+// Grouped by currency and never compared across groups — a bar for a £300 GBP account sitting
+// next to a $5,000 USD account's bar would silently imply they're the same kind of number, the
+// same mistake the total-balance card avoids by never summing currencies together.
+function BalanceByAccount({ accounts }: { accounts: AccountResponse[] }) {
+  const byCurrency = new Map<string, AccountResponse[]>()
+  for (const account of accounts) {
+    byCurrency.set(account.currency, [...(byCurrency.get(account.currency) ?? []), account])
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {Array.from(byCurrency.entries()).map(([currency, group]) => {
+        const sorted = [...group].sort((a, b) => b.balance - a.balance)
+        const max = Math.max(...sorted.map((a) => a.balance), 1)
+        return (
+          <div key={currency}>
+            {byCurrency.size > 1 && <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">{currency}</p>}
+            <div className="flex flex-col gap-3">
+              {sorted.map((account) => (
+                <div key={account.accountId} className="flex items-center gap-3">
+                  <span className="w-28 shrink-0 truncate text-xs text-ink-400">{account.nickname ?? accountTypeLabel(account.accountType)}</span>
+                  <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-canvas">
+                    <div
+                      className={`h-full rounded-full transition-all ${barColor[account.accountType]}`}
+                      style={{ width: `${Math.max(4, (account.balance / max) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="w-24 shrink-0 text-right font-mono text-xs font-semibold text-ink-900">{formatMoney(account.balance, currency)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 export function DashboardPage() {
   const user = useAuth()
@@ -30,10 +77,6 @@ export function DashboardPage() {
     totals[currency] = (totals[currency] ?? 0) + loan.outstandingPrincipal
     return totals
   }, {})
-  const chartData = activeAccounts.map((a) => ({
-    name: a.nickname ?? `${a.accountType} (${a.currency})`,
-    balance: a.balance,
-  }))
   const firstName = user?.email.split('@')[0]
 
   function goToAccount(accountId: string) {
@@ -127,18 +170,12 @@ export function DashboardPage() {
         </div>
       )}
 
-      {chartData.length > 0 && (
+      {activeAccounts.length > 1 && (
         <div>
           <h2 className={sectionTitle}>Balance by account</h2>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-ink-100)" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-ink-400)' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: 'var(--color-ink-400)' }} axisLine={false} tickLine={false} />
-              <Tooltip cursor={{ fill: 'var(--color-canvas)' }} contentStyle={{ borderRadius: 8, border: '1px solid var(--color-ink-100)' }} />
-              <Bar dataKey="balance" fill="#0284c7" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="mt-3">
+            <BalanceByAccount accounts={activeAccounts} />
+          </div>
         </div>
       )}
     </div>

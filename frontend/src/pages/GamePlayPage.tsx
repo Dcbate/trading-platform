@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { ArrowLeft, Landmark, PartyPopper, SkullIcon, TimerOff } from 'lucide-react'
 import { apiErrorMessage } from '../api/client'
 import { useGameDifficulties, useGameMarket, useGameSession, useGameTrades, useStartGame, useTakeGameLoan, usePlaceGameTrade } from '../hooks/useGame'
-import { formatCountdown, formatMoney } from '../lib/format'
+import { formatCountdown, formatMoney, formatQuantity } from '../lib/format'
 import { btnDanger, btnGhost, btnGhostSm, btnPrimary, btnSuccess, card, input, inputSm, label, listSection, sectionTitle } from '../lib/styles'
 import type { GamePriceResponse, GameSessionResponse, OrderSide } from '../types/api'
 
@@ -17,6 +17,7 @@ function GoalProgress({ session }: { session: GameSessionResponse }) {
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Net worth</p>
           <p className={`font-mono text-3xl font-bold ${positive ? 'text-ink-900' : 'text-error-600'}`}>{formatMoney(session.netWorth, 'GBP')}</p>
+          <p className="mt-0.5 text-xs text-ink-400">Cash + shares held − loans owed</p>
         </div>
         <p className="text-sm text-ink-400">
           Goal <span className="font-mono font-semibold text-ink-700">{formatMoney(session.goalAmount, 'GBP')}</span>
@@ -24,6 +25,11 @@ function GoalProgress({ session }: { session: GameSessionResponse }) {
       </div>
       <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-canvas">
         <div className="h-full rounded-full bg-gradient-to-r from-primary-600 to-secondary-600 transition-all" style={{ width: `${progressPercent}%` }} />
+      </div>
+      <div className="mt-4 flex items-center gap-2 border-t border-ink-100 pt-3">
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-400">Cash to spend</span>
+        <span className="font-mono text-sm font-semibold text-ink-900">{formatMoney(session.cash, 'GBP')}</span>
+        <span className="text-xs text-ink-400">— not the same as net worth above</span>
       </div>
     </div>
   )
@@ -126,7 +132,7 @@ function TradeForm({ sessionId, symbol, price, cash }: { sessionId: string; symb
     e.preventDefault()
     if (!symbol || !quantity) return
     placeTrade.mutate(
-      { symbol, side, quantity: Number(quantity) },
+      { symbol, side, quantity: Math.round(Number(quantity)) },
       {
         onSuccess: (session) => {
           toast.success(`${side === 'BUY' ? 'Bought' : 'Sold'} ${quantity} ${symbol}`)
@@ -166,8 +172,16 @@ function TradeForm({ sessionId, symbol, price, cash }: { sessionId: string; symb
         </div>
       </div>
       <div className="flex flex-col gap-1.5">
-        <label className={label}>Quantity</label>
-        <input type="number" min="0.00000001" step="any" value={quantity} onChange={(e) => setQuantity(e.target.value)} className={`w-28 ${inputSm}`} required />
+        <label className={label}>Shares</label>
+        <input
+          type="number"
+          min="1"
+          step="1"
+          value={quantity}
+          onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ''))}
+          className={`w-28 ${inputSm}`}
+          required
+        />
       </div>
       <div className="flex flex-col gap-0.5 text-xs text-ink-400">
         <span>Cash: {formatMoney(cash, 'GBP')}</span>
@@ -200,10 +214,13 @@ function EndScreen({ session, sessionId }: { session: GameSessionResponse; sessi
   const loanDrag = bankrupt && session.loans.length > 0
 
   function playAgain() {
-    startGame.mutate(session.difficulty, {
-      onSuccess: (newSession) => navigate(`/game/play/${newSession.sessionId}`),
-      onError: (error) => toast.error(apiErrorMessage(error)),
-    })
+    startGame.mutate(
+      { clientId: session.clientId, difficulty: session.difficulty },
+      {
+        onSuccess: (newSession) => navigate(`/game/play/${newSession.sessionId}`),
+        onError: (error) => toast.error(apiErrorMessage(error)),
+      },
+    )
   }
 
   return (
@@ -351,7 +368,7 @@ export function GamePlayPage() {
             {session.positions.map((p) => (
               <div key={p.symbol} className="flex items-center justify-between py-3 text-sm">
                 <span className="font-semibold text-ink-900">{p.symbol}</span>
-                <span className="text-ink-400">{p.quantity} @ {formatMoney(p.avgCost, 'USD')}</span>
+                <span className="text-ink-400">{formatQuantity(p.quantity)} @ {formatMoney(p.avgCost, 'USD')}</span>
                 <span className={`font-mono font-semibold ${p.unrealizedPnl >= 0 ? 'text-success-600' : 'text-error-600'}`}>
                   {p.unrealizedPnl >= 0 ? '▲' : '▼'} {formatMoney(Math.abs(p.unrealizedPnl), 'USD')}
                 </span>
@@ -382,7 +399,7 @@ export function GamePlayPage() {
             {trades.slice(0, 8).map((t) => (
               <div key={t.tradeId} className="flex items-center justify-between py-3 text-sm">
                 <span className={`font-semibold ${t.side === 'BUY' ? 'text-success-600' : 'text-error-600'}`}>{t.side}</span>
-                <span className="text-ink-700">{t.quantity} {t.symbol} @ {formatMoney(t.price, 'USD')}</span>
+                <span className="text-ink-700">{formatQuantity(t.quantity)} {t.symbol} @ {formatMoney(t.price, 'USD')}</span>
                 <span className="text-ink-400">{new Date(t.createdAt).toLocaleTimeString()}</span>
               </div>
             ))}

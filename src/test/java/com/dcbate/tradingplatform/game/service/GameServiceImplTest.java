@@ -82,7 +82,7 @@ class GameServiceImplTest {
         when(positionRepository.findBySessionId(any())).thenReturn(List.of());
         when(loanRepository.findBySessionId(any())).thenReturn(List.of());
 
-        GameSessionResponse response = gameService.startSession(GameDifficulty.APPRENTICE, owner);
+        GameSessionResponse response = gameService.startSession("client-1", GameDifficulty.APPRENTICE, owner);
 
         assertThat(response.status()).isEqualTo(GameStatus.IN_PROGRESS);
         assertThat(response.cash()).isEqualByComparingTo(GameDifficulty.APPRENTICE.getStartingCash());
@@ -98,10 +98,16 @@ class GameServiceImplTest {
         when(positionRepository.findBySessionId(existing.getSessionId())).thenReturn(List.of());
         when(loanRepository.findBySessionId(existing.getSessionId())).thenReturn(List.of());
 
-        GameSessionResponse response = gameService.startSession(GameDifficulty.MAVERICK, owner);
+        GameSessionResponse response = gameService.startSession("client-1", GameDifficulty.MAVERICK, owner);
 
         assertThat(response.sessionId()).isEqualTo(existing.getSessionId());
         assertThat(response.difficulty()).isEqualTo(GameDifficulty.TRADER);
+    }
+
+    @Test
+    void startSessionDeniedForNonOwner() {
+        assertThatThrownBy(() -> gameService.startSession("client-1", GameDifficulty.APPRENTICE, otherClient))
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test

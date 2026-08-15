@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import { Gamepad2 } from 'lucide-react'
 import { apiErrorMessage } from '../api/client'
 import { useAuth, useLogin } from '../hooks/useAuth'
 import { btnPrimary, input, label } from '../lib/styles'
@@ -42,6 +43,18 @@ export function LoginPage() {
           <p className="mt-3 max-w-sm text-sm text-ink-400">
             Built end to end, event-driven, with real settlement. Not a mockup.
           </p>
+          <Link
+            to="/game"
+            className="mt-6 flex max-w-sm items-center gap-3 rounded-xl bg-white/5 p-3 transition hover:bg-white/10"
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-secondary-500">
+              <Gamepad2 size={16} strokeWidth={2} className="text-white" />
+            </span>
+            <p className="text-xs text-ink-400">
+              No account needed — try <span className="font-semibold text-white">Game Mode</span> now. Practice loans,
+              FX, and stock trading against a countdown, with fake money.
+            </p>
+          </Link>
         </div>
         <p className="text-xs text-ink-400">© {new Date().getFullYear()} Bate Banking</p>
       </div>

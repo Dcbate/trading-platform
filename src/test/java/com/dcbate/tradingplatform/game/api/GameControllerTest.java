@@ -78,8 +78,9 @@ class GameControllerTest {
     @Test
     void startSessionReturnsOk() throws Exception {
         UUID sessionId = UUID.randomUUID();
-        GameStartRequest request = new GameStartRequest(GameDifficulty.APPRENTICE);
-        when(gameService.startSession(eq(GameDifficulty.APPRENTICE), any())).thenReturn(session(sessionId, GameStatus.IN_PROGRESS, new BigDecimal("1000")));
+        GameStartRequest request = new GameStartRequest("client-1", GameDifficulty.APPRENTICE);
+        when(gameService.startSession(eq("client-1"), eq(GameDifficulty.APPRENTICE), any()))
+                .thenReturn(session(sessionId, GameStatus.IN_PROGRESS, new BigDecimal("1000")));
 
         mockMvc.perform(post("/v1/game/sessions")
                         .principal(clientAuth("client-1"))

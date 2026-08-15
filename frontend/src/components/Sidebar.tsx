@@ -10,6 +10,7 @@ import {
   LogOut,
   Sun,
   Moon,
+  Gamepad2,
 } from 'lucide-react'
 import { useAuth, useLogout } from '../hooks/useAuth'
 import { useThemeStore } from '../store/themeStore'
@@ -41,6 +42,13 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? 'bg-primary-500/15 text-primary-300' : 'text-ink-400 hover:bg-white/5 hover:text-white'
   }`
 
+// Deliberately styled apart from the rest of the nav (gradient chip, not a plain icon) — Game
+// Mode's money is fake, and the sidebar should make that obvious at a glance, not just in copy.
+const gameLinkClass = ({ isActive }: { isActive: boolean }) =>
+  `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+    isActive ? 'bg-white/10 text-white' : 'text-ink-400 hover:bg-white/5 hover:text-white'
+  }`
+
 export function Sidebar() {
   const user = useAuth()
   const logout = useLogout()
@@ -48,7 +56,7 @@ export function Sidebar() {
   const toggleTheme = useThemeStore((s) => s.toggleTheme)
 
   return (
-    <aside className="flex h-screen w-60 shrink-0 flex-col bg-ink-950 text-white">
+    <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col overflow-y-auto bg-ink-950 text-white">
       <div className="flex items-center gap-2 px-5 py-6">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-500 font-serif text-lg font-bold text-white">
           B
@@ -76,6 +84,16 @@ export function Sidebar() {
             })}
           </div>
         ))}
+
+        <div className="flex flex-col gap-0.5">
+          <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-600">Play</p>
+          <NavLink to="/game" className={gameLinkClass}>
+            <span className="flex h-[18px] w-[18px] items-center justify-center rounded-md bg-gradient-to-br from-primary-500 to-secondary-500">
+              <Gamepad2 size={12} strokeWidth={2.5} className="text-white" />
+            </span>
+            Game Mode
+          </NavLink>
+        </div>
       </nav>
 
       <div className="flex flex-col gap-2 border-t border-white/5 px-3 py-4">
