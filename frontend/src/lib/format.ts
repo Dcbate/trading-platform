@@ -31,6 +31,13 @@ export function formatQuantity(quantity: number): string {
   return (Math.round(quantity * 10000) / 10000).toString()
 }
 
+// Keys a whole-shares input to digits only, typed live. Stripping "." and keeping every digit
+// (a naive [^0-9] replace) turns "2.5" into "25", not "2" — silently 10x-ing the value instead of
+// rejecting the fraction. Truncating at the first "." before stripping avoids that.
+export function sanitizeWholeNumberInput(value: string): string {
+  return value.split('.')[0].replace(/[^0-9]/g, '')
+}
+
 // mm:ss for Game Mode's countdown — never negative, a session that's just ended still needs to render "0:00", not "-0:03".
 export function formatCountdown(totalSeconds: number): string {
   const seconds = Math.max(0, Math.round(totalSeconds))

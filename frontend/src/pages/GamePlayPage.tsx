@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { ArrowLeft, Landmark, PartyPopper, SkullIcon, TimerOff } from 'lucide-react'
 import { apiErrorMessage } from '../api/client'
 import { useGameDifficulties, useGameMarket, useGameSession, useGameTrades, useStartGame, useTakeGameLoan, usePlaceGameTrade } from '../hooks/useGame'
-import { formatCountdown, formatMoney, formatQuantity } from '../lib/format'
+import { formatCountdown, formatMoney, formatQuantity, sanitizeWholeNumberInput } from '../lib/format'
 import { btnDanger, btnGhost, btnGhostSm, btnPrimary, btnSuccess, card, input, inputSm, label, listSection, sectionTitle } from '../lib/styles'
 import type { GamePriceResponse, GameSessionResponse, OrderSide } from '../types/api'
 
@@ -178,7 +178,7 @@ function TradeForm({ sessionId, symbol, price, cash }: { sessionId: string; symb
           min="1"
           step="1"
           value={quantity}
-          onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ''))}
+          onChange={(e) => setQuantity(sanitizeWholeNumberInput(e.target.value))}
           className={`w-28 ${inputSm}`}
           required
         />

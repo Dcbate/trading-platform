@@ -9,7 +9,7 @@ import { usePositions } from '../hooks/usePositions'
 import { TransactionTable, type Column } from '../components/TransactionTable'
 import { Badge } from '../components/Badge'
 import { btnSuccess, btnDanger, card, input, label, pageTitle, sectionTitle } from '../lib/styles'
-import { accountTypeLabel, formatMoney, formatQuantity } from '../lib/format'
+import { accountTypeLabel, formatMoney, formatQuantity, sanitizeWholeNumberInput } from '../lib/format'
 import type { OrderResponse, OrderSide, PositionResponse } from '../types/api'
 
 // US-listed shares trade in USD everywhere, including for a UK client — this isn't the account's
@@ -89,7 +89,7 @@ function OrderForm({ accountId, symbols, priceFor }: { accountId: string; symbol
           min="1"
           step="1"
           value={quantity}
-          onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ''))}
+          onChange={(e) => setQuantity(sanitizeWholeNumberInput(e.target.value))}
           className={`w-28 ${input}`}
           required
         />
