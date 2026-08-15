@@ -51,7 +51,7 @@ export function SignupPage() {
         <div>
           <h2 className="max-w-sm text-3xl font-semibold leading-tight">Open an account in seconds.</h2>
           <p className="mt-3 max-w-sm text-sm text-ink-400">
-            A $0 USD checking account is opened for you automatically — deposit, transfer, borrow, and trade from there.
+            A $0 USD current account is opened for you automatically — deposit, transfer, borrow, and trade from there.
           </p>
         </div>
         <p className="text-xs text-ink-400">© {new Date().getFullYear()} Bate Banking</p>
@@ -67,7 +67,7 @@ export function SignupPage() {
             </div>
           </div>
           <h1 className="mb-1 text-2xl font-semibold text-ink-900">Create your account</h1>
-          <p className="mb-8 text-sm text-ink-400">Opens a $0 USD checking account automatically.</p>
+          <p className="mb-8 text-sm text-ink-400">Opens a $0 USD current account automatically.</p>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <label className={label} htmlFor="email">

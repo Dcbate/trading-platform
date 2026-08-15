@@ -14,7 +14,7 @@ import lombok.Getter;
 public enum LoanProductType {
     PERSONAL_SHORT("Personal Loan (1 year)", new BigDecimal("9.99"), 12),
     PERSONAL_LONG("Personal Loan (3 years)", new BigDecimal("7.49"), 36),
-    AUTO("Auto Loan (5 years)", new BigDecimal("5.25"), 60),
+    AUTO("Car Loan (5 years)", new BigDecimal("5.25"), 60),
     STUDENT("Student Loan (10 years)", new BigDecimal("4.25"), 120),
     MORTGAGE("Mortgage (30 years)", new BigDecimal("3.75"), 360);
 

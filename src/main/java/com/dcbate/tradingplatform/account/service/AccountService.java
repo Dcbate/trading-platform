@@ -2,6 +2,7 @@ package com.dcbate.tradingplatform.account.service;
 
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
+import com.dcbate.tradingplatform.account.api.dto.BalanceSummaryResponse;
 import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
@@ -23,6 +24,9 @@ public interface AccountService {
     AccountResponse getAccount(UUID accountId, CallerPrincipal caller);
 
     List<AccountResponse> listAccountsForClient(String clientId, CallerPrincipal caller);
+
+    /** Total balance across the client's {@code ACTIVE} accounts, grouped by currency — see {@link BalanceSummaryResponse}. */
+    BalanceSummaryResponse getBalanceSummary(String clientId, CallerPrincipal caller);
 
     AccountResponse deposit(UUID accountId, BigDecimal amount, CallerPrincipal caller);
 

@@ -4,6 +4,7 @@ import { Send } from 'lucide-react'
 import { apiErrorMessage } from '../api/client'
 import { useCreateTransfer } from '../hooks/useTransfers'
 import { accountLabel, type AccountResponse, type TransferResponse } from '../types/api'
+import { formatMoney } from '../lib/format'
 import { btnPrimary, card, input, label } from '../lib/styles'
 
 export function TransferForm({
@@ -24,7 +25,8 @@ export function TransferForm({
       { fromAccountId, toAccountId, amount: Number(amount) },
       {
         onSuccess: (transfer) => {
-          toast.success(`Sent $${transfer.amount} — ${transfer.status}`)
+          const currency = accounts.find((a) => a.accountId === transfer.fromAccountId)?.currency ?? 'GBP'
+          toast.success(`Sent ${formatMoney(transfer.amount, currency)} — ${transfer.status}`)
           setToAccountId('')
           setAmount('')
           onTransferred?.(transfer)
@@ -43,7 +45,7 @@ export function TransferForm({
         <select id="fromAccountId" value={fromAccountId} onChange={(e) => setFromAccountId(e.target.value)} className={input} required>
           {accounts.map((account) => (
             <option key={account.accountId} value={account.accountId}>
-              {accountLabel(account)} · {account.balance}
+              {accountLabel(account)} · {formatMoney(account.balance, account.currency)}
             </option>
           ))}
         </select>

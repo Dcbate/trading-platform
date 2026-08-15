@@ -17,14 +17,15 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler({OrderNotFoundException.class, PaymentNotFoundException.class, AccountNotFoundException.class,
-            TransferNotFoundException.class, LoanNotFoundException.class})
+            TransferNotFoundException.class, LoanNotFoundException.class, GameSessionNotFoundException.class})
     public ResponseEntity<ApiError> handleNotFound(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, List.of(e.getMessage()), request);
     }
 
     @ExceptionHandler({InvalidPaymentStateException.class, InsufficientFundsException.class, AccountNotActiveException.class,
             CurrencyMismatchException.class, RateUnavailableException.class, LoanNotActiveException.class,
-            EmailAlreadyRegisteredException.class, InvalidAccountClosureException.class, InsufficientPositionException.class})
+            EmailAlreadyRegisteredException.class, InvalidAccountClosureException.class, InsufficientPositionException.class,
+            GameSessionNotActiveException.class, GameInsufficientFundsException.class, GameInsufficientPositionException.class})
     public ResponseEntity<ApiError> handleConflict(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, List.of(e.getMessage()), request);
     }

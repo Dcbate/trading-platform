@@ -10,7 +10,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
+import com.dcbate.tradingplatform.account.api.dto.BalanceSummaryResponse;
 import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
+import com.dcbate.tradingplatform.account.api.dto.CurrencyBalance;
 import com.dcbate.tradingplatform.account.service.AccountService;
 import com.dcbate.tradingplatform.config.TradingProperties;
 import com.dcbate.tradingplatform.domain.AccountStatus;
@@ -111,6 +113,19 @@ class AccountControllerTest {
 
         mockMvc.perform(get("/v1/accounts").param("clientId", "client-1").principal(clientAuth("client-1")))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void getBalanceSummaryReturnsOk() throws Exception {
+        BalanceSummaryResponse response = new BalanceSummaryResponse(
+                "client-1", 2, List.of(new CurrencyBalance("USD", new BigDecimal("7500.00"), 2)));
+        when(accountService.getBalanceSummary(eq("client-1"), any())).thenReturn(response);
+
+        mockMvc.perform(get("/v1/accounts/balances").param("clientId", "client-1").principal(clientAuth("client-1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeAccountCount").value(2))
+                .andExpect(jsonPath("$.balances[0].currency").value("USD"))
+                .andExpect(jsonPath("$.balances[0].totalBalance").value(7500.00));
     }
 
     @Test

@@ -2,8 +2,10 @@ package com.dcbate.tradingplatform.account.service;
 
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
+import com.dcbate.tradingplatform.account.api.dto.BalanceSummaryResponse;
 import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
+import com.dcbate.tradingplatform.account.api.dto.CurrencyBalance;
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
@@ -24,8 +26,11 @@ import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -78,6 +83,26 @@ public class AccountServiceImpl implements AccountService {
     public List<AccountResponse> listAccountsForClient(String clientId, CallerPrincipal caller) {
         caller.requireOwner(clientId);
         return accountRepository.findByClientId(clientId).stream().map(AccountResponse::from).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public BalanceSummaryResponse getBalanceSummary(String clientId, CallerPrincipal caller) {
+        caller.requireOwner(clientId);
+
+        Map<String, List<Account>> activeByCurrency = accountRepository.findByClientId(clientId).stream()
+                .filter(account -> account.getStatus() == AccountStatus.ACTIVE)
+                .collect(Collectors.groupingBy(Account::getCurrency, TreeMap::new, Collectors.toList()));
+
+        List<CurrencyBalance> balances = activeByCurrency.entrySet().stream()
+                .map(entry -> new CurrencyBalance(
+                        entry.getKey(),
+                        entry.getValue().stream().map(Account::getBalance).reduce(BigDecimal.ZERO, BigDecimal::add),
+                        entry.getValue().size()))
+                .toList();
+
+        int activeAccountCount = balances.stream().mapToInt(CurrencyBalance::accountCount).sum();
+        return new BalanceSummaryResponse(clientId, activeAccountCount, balances);
     }
 
     @Override

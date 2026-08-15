@@ -8,8 +8,13 @@ import { useOrders, useSubmitOrder } from '../hooks/useOrders'
 import { usePositions } from '../hooks/usePositions'
 import { TransactionTable, type Column } from '../components/TransactionTable'
 import { Badge } from '../components/Badge'
-import { btnSuccess, btnDanger, card, input, label } from '../lib/styles'
+import { btnSuccess, btnDanger, card, input, label, pageTitle, sectionTitle } from '../lib/styles'
+import { accountTypeLabel, formatMoney } from '../lib/format'
 import type { OrderResponse, OrderSide, PositionResponse } from '../types/api'
+
+// US-listed shares trade in USD everywhere, including for a UK client — this isn't the account's
+// own currency, so it stays fixed regardless of which currency the funding account holds.
+const usd = (amount: number) => formatMoney(amount, 'USD')
 
 function formatUpdatedAgo(updatedAt: number) {
   if (!updatedAt) return '—'
@@ -64,14 +69,14 @@ function OrderForm({ accountId, symbols, priceFor }: { accountId: string; symbol
           <button
             type="button"
             onClick={() => setSide('BUY')}
-            className={`px-4 py-2.5 text-sm font-semibold transition ${side === 'BUY' ? 'bg-success-600 text-white' : 'bg-white text-ink-600 hover:bg-ink-50'}`}
+            className={`px-4 py-2.5 text-sm font-semibold transition ${side === 'BUY' ? 'bg-success-600 text-white' : 'bg-surface text-ink-600 hover:bg-canvas'}`}
           >
             Buy
           </button>
           <button
             type="button"
             onClick={() => setSide('SELL')}
-            className={`px-4 py-2.5 text-sm font-semibold transition ${side === 'SELL' ? 'bg-error-600 text-white' : 'bg-white text-ink-600 hover:bg-ink-50'}`}
+            className={`px-4 py-2.5 text-sm font-semibold transition ${side === 'SELL' ? 'bg-error-600 text-white' : 'bg-surface text-ink-600 hover:bg-canvas'}`}
           >
             Sell
           </button>
@@ -90,10 +95,10 @@ function OrderForm({ accountId, symbols, priceFor }: { accountId: string; symbol
         />
       </div>
       <div className="flex flex-col gap-0.5 text-sm text-ink-400">
-        <span>Live price: {price ? `$${price.toFixed(2)}` : '—'}</span>
+        <span>Live price: {price ? usd(price) : '—'}</span>
         {estimatedCost !== undefined && (
           <span className="font-mono font-semibold text-ink-900">
-            Est. {side === 'BUY' ? 'cost' : 'proceeds'}: ${estimatedCost.toFixed(2)}
+            Est. {side === 'BUY' ? 'cost' : 'proceeds'}: {usd(estimatedCost)}
           </span>
         )}
       </div>
@@ -121,7 +126,7 @@ export function TradingPage() {
     { header: 'Symbol', render: (o) => <span className="font-semibold text-ink-900">{o.currencyPair}</span> },
     { header: 'Side', render: (o) => <Badge variant={o.side === 'BUY' ? 'success' : 'error'}>{o.side}</Badge> },
     { header: 'Shares', render: (o) => o.quantity },
-    { header: 'Price', render: (o) => <span className="font-mono">${o.price.toFixed(2)}</span> },
+    { header: 'Price', render: (o) => <span className="font-mono">{usd(o.price)}</span> },
     {
       header: 'Status',
       render: (o) => (
@@ -134,13 +139,13 @@ export function TradingPage() {
   const positionColumns: Column<PositionResponse>[] = [
     { header: 'Symbol', render: (p) => <span className="font-semibold text-ink-900">{p.symbol}</span> },
     { header: 'Shares', render: (p) => p.quantity },
-    { header: 'Avg cost', render: (p) => <span className="font-mono">${p.avgCost.toFixed(2)}</span> },
-    { header: 'Current price', render: (p) => (priceFor(p.symbol) ? <span className="font-mono">${priceFor(p.symbol)!.toFixed(2)}</span> : '—') },
+    { header: 'Avg cost', render: (p) => <span className="font-mono">{usd(p.avgCost)}</span> },
+    { header: 'Current price', render: (p) => (priceFor(p.symbol) ? <span className="font-mono">{usd(priceFor(p.symbol)!)}</span> : '—') },
     {
       header: 'Market value',
       render: (p) => {
         const current = priceFor(p.symbol)
-        return current ? <span className="font-mono font-semibold">${(current * p.quantity).toFixed(2)}</span> : '—'
+        return current ? <span className="font-mono font-semibold">{usd(current * p.quantity)}</span> : '—'
       },
     },
     {
@@ -152,7 +157,7 @@ export function TradingPage() {
         const pnlPercent = p.avgCost > 0 ? (pnl / (p.avgCost * p.quantity)) * 100 : 0
         return (
           <span className={`font-mono font-semibold ${pnl >= 0 ? 'text-success-600' : 'text-error-600'}`}>
-            {pnl >= 0 ? '▲' : '▼'} ${Math.abs(pnl).toFixed(2)} ({pnlPercent.toFixed(1)}%)
+            {pnl >= 0 ? '▲' : '▼'} {usd(Math.abs(pnl))} ({pnlPercent.toFixed(1)}%)
           </span>
         )
       },
@@ -163,7 +168,7 @@ export function TradingPage() {
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold text-ink-900">Trading</h1>
+          <h1 className={pageTitle}>Stocks & Shares</h1>
           <p className="text-sm text-ink-400">
             Buy and sell shares — fills settle for real. Last tick {formatUpdatedAgo(dataUpdatedAt)}.
           </p>
@@ -177,9 +182,9 @@ export function TradingPage() {
       {prices.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
           {prices.map((p) => (
-            <div key={p.symbol} className="rounded-2xl border border-ink-100 bg-white p-3 shadow-sm shadow-ink-900/[0.02]">
+            <div key={p.symbol} className="rounded-lg border border-ink-100 bg-surface p-3">
               <p className="text-xs font-semibold text-ink-400">{p.symbol}</p>
-              <p className="font-mono text-lg font-semibold text-ink-900">${p.price.toFixed(2)}</p>
+              <p className="font-mono text-lg font-semibold text-ink-900">{usd(p.price)}</p>
               <p className={`text-xs ${p.trend === 'up' ? 'text-success-600' : p.trend === 'down' ? 'text-error-600' : 'text-ink-400'}`}>
                 {p.trend === 'up' ? '▲' : p.trend === 'down' ? '▼' : '—'}
               </p>
@@ -189,7 +194,9 @@ export function TradingPage() {
       )}
 
       {brokerageAccounts.length === 0 ? (
-        <p className="text-sm text-ink-400">You need a BROKERAGE account before you can trade — open one from the Accounts page.</p>
+        <p className="text-sm text-ink-400">
+          You need a {accountTypeLabel('BROKERAGE')} account before you can trade — open one from the Accounts page.
+        </p>
       ) : (
         <div className="flex flex-col gap-3">
           {brokerageAccounts.length > 1 && (
@@ -198,7 +205,7 @@ export function TradingPage() {
               <select value={accountId} onChange={(e) => setSelectedAccountId(e.target.value)} className={`w-64 ${input}`}>
                 {brokerageAccounts.map((a) => (
                   <option key={a.accountId} value={a.accountId}>
-                    {a.nickname ?? a.accountId.slice(0, 8)} — ${a.balance.toFixed(2)} {a.currency}
+                    {a.nickname ?? a.accountId.slice(0, 8)} — {formatMoney(a.balance, a.currency)}
                   </option>
                 ))}
               </select>
@@ -209,7 +216,7 @@ export function TradingPage() {
       )}
 
       <div>
-        <h2 className="mb-2 text-sm font-semibold text-ink-700">My positions</h2>
+        <h2 className={`${sectionTitle} mb-2`}>My positions</h2>
         <TransactionTable
           rows={positions ?? []}
           columns={positionColumns}
@@ -219,7 +226,7 @@ export function TradingPage() {
       </div>
 
       <div>
-        <h2 className="mb-2 text-sm font-semibold text-ink-700">My orders</h2>
+        <h2 className={`${sectionTitle} mb-2`}>My orders</h2>
         <TransactionTable rows={orders ?? []} columns={orderColumns} keyField="orderId" emptyMessage="No orders yet." />
       </div>
     </div>

@@ -3,6 +3,7 @@ package com.dcbate.tradingplatform.account.api;
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
 import com.dcbate.tradingplatform.account.api.dto.AccountTransactionRequest;
+import com.dcbate.tradingplatform.account.api.dto.BalanceSummaryResponse;
 import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.account.service.AccountService;
@@ -73,6 +74,13 @@ public class AccountController {
     @Operation(summary = "List a client's accounts")
     public ResponseEntity<List<AccountResponse>> listAccounts(@RequestParam String clientId, Authentication authentication) {
         return ResponseEntity.ok(accountService.listAccountsForClient(clientId, CallerPrincipal.from(authentication)));
+    }
+
+    @GetMapping("/balances")
+    @PreAuthorize("hasAnyRole('CLIENT', 'ADMIN', 'AUDITOR', 'COMPLIANCE_OFFICER')")
+    @Operation(summary = "Total balance across a client's active accounts, grouped by currency")
+    public ResponseEntity<BalanceSummaryResponse> getBalanceSummary(@RequestParam String clientId, Authentication authentication) {
+        return ResponseEntity.ok(accountService.getBalanceSummary(clientId, CallerPrincipal.from(authentication)));
     }
 
     @PostMapping("/{accountId}/deposit")

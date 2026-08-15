@@ -5,6 +5,7 @@ import { apiErrorMessage } from '../api/client'
 import { useLoanProducts, useOriginateLoan } from '../hooks/useLoans'
 import { useAuth } from '../hooks/useAuth'
 import { accountLabel, type AccountResponse, type LoanProductType, type LoanResponse } from '../types/api'
+import { formatMoney } from '../lib/format'
 import { btnPrimary, card, input, label } from '../lib/styles'
 
 export function LoanForm({
@@ -30,7 +31,8 @@ export function LoanForm({
       { clientId: user.clientId, accountId, principal: Number(principal), productType },
       {
         onSuccess: (loan) => {
-          toast.success(`Loan originated: $${loan.principal} at ${loan.interestRateAnnualPercent}%`)
+          const currency = accounts.find((a) => a.accountId === loan.accountId)?.currency ?? 'GBP'
+          toast.success(`Loan originated: ${formatMoney(loan.principal, currency)} at ${loan.interestRateAnnualPercent}%`)
           setPrincipal('')
           onOriginated?.(loan)
         },

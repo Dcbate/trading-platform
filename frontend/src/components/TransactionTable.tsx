@@ -21,14 +21,14 @@ export function TransactionTable<T>({
 }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-ink-100 bg-white/60 py-10 text-center text-sm text-ink-400">
+      <div className="rounded-xl border border-dashed border-ink-100 py-10 text-center text-sm text-ink-400">
         {emptyMessage}
       </div>
     )
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm shadow-ink-900/[0.02]">
+    <div className="overflow-hidden rounded-xl border border-ink-100 bg-surface">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -40,7 +40,7 @@ export function TransactionTable<T>({
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-ink-50">
+          <tbody className="divide-y divide-ink-100">
             {rows.map((row) => (
               <tr key={String(row[keyField])} className="transition hover:bg-canvas">
                 {columns.map((col) => (

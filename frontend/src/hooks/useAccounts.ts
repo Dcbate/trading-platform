@@ -1,11 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
-import type { AccountResponse, AccountType } from '../types/api'
+import type { AccountResponse, AccountType, BalanceSummaryResponse } from '../types/api'
 
 export function useAccounts(clientId: string | undefined) {
   return useQuery({
     queryKey: ['accounts', clientId],
     queryFn: () => apiClient.get<AccountResponse[]>('/v1/accounts', { params: { clientId } }).then((r) => r.data),
+    enabled: !!clientId,
+  })
+}
+
+export function useBalanceSummary(clientId: string | undefined) {
+  return useQuery({
+    queryKey: ['accounts', 'balances', clientId],
+    queryFn: () => apiClient.get<BalanceSummaryResponse>('/v1/accounts/balances', { params: { clientId } }).then((r) => r.data),
     enabled: !!clientId,
   })
 }
@@ -40,6 +48,7 @@ export function useOpenAccount() {
     mutationFn: (body: OpenAccountInput) => apiClient.post<AccountResponse>('/v1/accounts', body).then((r) => r.data),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['accounts', variables.clientId] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'balances', variables.clientId] })
     },
   })
 }
@@ -52,6 +61,7 @@ function useAccountMutation(action: 'deposit' | 'withdraw') {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['account', data.accountId] })
       queryClient.invalidateQueries({ queryKey: ['accounts', data.clientId] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'balances', data.clientId] })
     },
   })
 }
@@ -73,6 +83,7 @@ export function useConvert() {
         .then((r) => r.data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['accounts', data.clientId] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'balances', data.clientId] })
     },
   })
 }
@@ -89,6 +100,7 @@ export function useCloseAccount() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['account', data.accountId] })
       queryClient.invalidateQueries({ queryKey: ['accounts', data.clientId] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'balances', data.clientId] })
     },
   })
 }

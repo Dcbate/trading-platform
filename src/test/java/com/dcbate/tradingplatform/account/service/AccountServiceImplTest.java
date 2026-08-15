@@ -7,8 +7,10 @@ import static org.mockito.Mockito.when;
 
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.AccountResponse;
+import com.dcbate.tradingplatform.account.api.dto.BalanceSummaryResponse;
 import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
+import com.dcbate.tradingplatform.account.api.dto.CurrencyBalance;
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
@@ -124,6 +126,31 @@ class AccountServiceImplTest {
 
         assertThat(responses).hasSize(1);
         assertThat(responses.get(0).clientId()).isEqualTo("client-2");
+    }
+
+    @Test
+    void getBalanceSummaryGroupsActiveAccountsByCurrencyExcludingClosedAndFrozen() {
+        Account checking = account(UUID.randomUUID(), "client-1", "USD", new BigDecimal("2500.00"));
+        Account savings = account(UUID.randomUUID(), "client-1", "USD", new BigDecimal("5000.00"));
+        Account euroAccount = account(UUID.randomUUID(), "client-1", "EUR", new BigDecimal("300.00"));
+        Account closed = account(UUID.randomUUID(), "client-1", "USD", new BigDecimal("999.00"));
+        closed.setStatus(AccountStatus.CLOSED);
+        Account frozen = account(UUID.randomUUID(), "client-1", "USD", new BigDecimal("999.00"));
+        frozen.setStatus(AccountStatus.FROZEN);
+        when(accountRepository.findByClientId("client-1")).thenReturn(List.of(checking, savings, euroAccount, closed, frozen));
+
+        BalanceSummaryResponse summary = accountService.getBalanceSummary("client-1", owner);
+
+        assertThat(summary.clientId()).isEqualTo("client-1");
+        assertThat(summary.activeAccountCount()).isEqualTo(3);
+        assertThat(summary.balances()).containsExactly(
+                new CurrencyBalance("EUR", new BigDecimal("300.00"), 1),
+                new CurrencyBalance("USD", new BigDecimal("7500.00"), 2));
+    }
+
+    @Test
+    void getBalanceSummaryDeniedForNonOwner() {
+        assertThatThrownBy(() -> accountService.getBalanceSummary("client-1", otherClient)).isInstanceOf(AccessDeniedException.class);
     }
 
     @Test

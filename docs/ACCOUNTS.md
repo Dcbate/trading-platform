@@ -25,7 +25,15 @@ on the FX desk ([TRADING_SYSTEM.md](TRADING_SYSTEM.md)) — a client can hold on
 an ordinary `CHECKING` account, which is what "FX trading is an account type" means in practice.
 
 A client can open as many accounts, of any mix of types and currencies, as they want:
-`POST /v1/accounts {clientId, accountType, currency, openingBalance}`.
+`POST /v1/accounts {clientId, accountType, currency, openingBalance}`. List them with
+`GET /v1/accounts?clientId=`.
+
+`GET /v1/accounts/balances?clientId=` returns the total across a client's **active** accounts,
+grouped by currency — `{clientId, activeAccountCount, balances: [{currency, totalBalance, accountCount}]}`.
+Closed and frozen accounts are excluded (a closed account's balance is always zero anyway; a frozen
+one isn't spendable), and different currencies are never summed into one number — that would be
+meaningless, not just imprecise. This is a read-only aggregate over the same rows `listAccounts`
+already returns; no new table, no new Kafka topic.
 
 ## 3. Ownership security
 

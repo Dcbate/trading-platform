@@ -4,7 +4,7 @@ import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'rec
 import { useFxPrices } from '../hooks/useFxPrices'
 import type { PriceWithTrend } from '../hooks/useLivePrices'
 import { Badge } from '../components/Badge'
-import { card } from '../lib/styles'
+import { card, pageTitle } from '../lib/styles'
 
 const trendColor: Record<PriceWithTrend['trend'], string> = {
   up: 'text-success-600',
@@ -29,8 +29,8 @@ function PairCard({ price, selected, onSelect }: { price: PriceWithTrend; select
     <button
       type="button"
       onClick={onSelect}
-      className={`flex flex-col gap-2 rounded-2xl border bg-white p-4 text-left shadow-sm shadow-ink-900/[0.02] transition hover:-translate-y-0.5 hover:shadow-md ${
-        selected ? 'border-primary-400 ring-1 ring-primary-400' : 'border-ink-100'
+      className={`flex flex-col gap-2 rounded-lg border bg-surface p-4 text-left transition ${
+        selected ? 'border-primary-400 ring-1 ring-primary-400' : 'border-ink-100 hover:border-ink-400'
       }`}
     >
       <div className="flex items-center justify-between">
@@ -111,7 +111,7 @@ export function FXMarketsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold text-ink-900">FX Markets</h1>
+          <h1 className={pageTitle}>FX Markets</h1>
           <p className="text-sm text-ink-400">Live prices — updated every 3s, last tick {formatUpdatedAgo(dataUpdatedAt)}.</p>
         </div>
         <Badge variant="warning">No real markets</Badge>

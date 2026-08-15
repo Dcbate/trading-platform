@@ -3,11 +3,12 @@ import toast from 'react-hot-toast'
 import { apiErrorMessage } from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import { useAccounts } from '../hooks/useAccounts'
-import { useLoans, useRepayLoan } from '../hooks/useLoans'
+import { useLoanProducts, useLoans, useRepayLoan } from '../hooks/useLoans'
 import { LoanForm } from '../components/LoanForm'
 import { TransactionTable, type Column } from '../components/TransactionTable'
 import { Badge } from '../components/Badge'
-import { btnGhostSm, inputSm } from '../lib/styles'
+import { formatMoney } from '../lib/format'
+import { btnGhostSm, inputSm, pageTitle } from '../lib/styles'
 import type { LoanResponse } from '../types/api'
 
 function RepayCell({ loan }: { loan: LoanResponse }) {
@@ -57,21 +58,40 @@ export function LoansPage() {
   const { data: accounts } = useAccounts(user?.clientId)
   const activeAccounts = (accounts ?? []).filter((a) => a.status === 'ACTIVE')
   const { data: loans } = useLoans(user?.clientId)
+  const { data: products } = useLoanProducts()
+
+  // A loan doesn't carry its own currency — it's disbursed to (and repaid from) an account, so
+  // format its amounts in that account's real currency rather than assuming one.
+  const currencyByAccountId = new Map((accounts ?? []).map((a) => [a.accountId, a.currency]))
+  const productName = (code: string) => products?.find((p) => p.code === code)?.displayName ?? code
 
   const columns: Column<LoanResponse>[] = [
-    { header: 'Product', render: (l) => l.productType },
-    { header: 'Principal', render: (l) => <span className="font-mono">${l.principal.toFixed(2)}</span> },
-    { header: 'Outstanding', render: (l) => <span className="font-mono">${l.outstandingPrincipal.toFixed(2)}</span> },
-    { header: 'Accrued interest', render: (l) => <span className="font-mono">${l.accruedInterest.toFixed(2)}</span> },
+    { header: 'Product', render: (l) => productName(l.productType) },
+    {
+      header: 'Principal',
+      render: (l) => <span className="font-mono">{formatMoney(l.principal, currencyByAccountId.get(l.accountId) ?? 'GBP')}</span>,
+    },
+    {
+      header: 'Outstanding',
+      render: (l) => (
+        <span className="font-mono">{formatMoney(l.outstandingPrincipal, currencyByAccountId.get(l.accountId) ?? 'GBP')}</span>
+      ),
+    },
+    {
+      header: 'Accrued interest',
+      render: (l) => (
+        <span className="font-mono">{formatMoney(l.accruedInterest, currencyByAccountId.get(l.accountId) ?? 'GBP')}</span>
+      ),
+    },
     { header: 'Rate', render: (l) => `${l.interestRateAnnualPercent}%` },
     { header: 'Status', render: (l) => <Badge variant={l.status === 'ACTIVE' ? 'primary' : 'success'}>{l.status}</Badge> },
     { header: 'Repay', render: (l) => <RepayCell loan={l} /> },
   ]
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-10">
       <div>
-        <h1 className="text-2xl font-semibold text-ink-900">Loans</h1>
+        <h1 className={pageTitle}>Loans</h1>
         <p className="text-sm text-ink-400">
           Rates and terms come from a fixed product catalog — repayments pay down accrued interest first, then
           principal.

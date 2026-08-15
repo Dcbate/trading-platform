@@ -13,6 +13,14 @@
     />
   </head>
   <body>
+    <script>
+      // Runs before React mounts so the page never flashes light-then-dark.
+      var storedTheme = localStorage.getItem('bate-banking-theme')
+      var theme = storedTheme === 'light' || storedTheme === 'dark'
+        ? storedTheme
+        : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      if (theme === 'dark') document.documentElement.classList.add('dark')
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

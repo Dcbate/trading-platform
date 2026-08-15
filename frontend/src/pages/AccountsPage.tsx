@@ -15,7 +15,8 @@ import { useAppStore } from '../store/appStore'
 import { TransactionTable, type Column } from '../components/TransactionTable'
 import { Badge } from '../components/Badge'
 import { accountLabel, type AccountResponse, type AccountType } from '../types/api'
-import { btnDangerSm, btnGhostSm, btnPrimary, btnSuccessSm, card, input, inputSm, label } from '../lib/styles'
+import { accountTypeLabel, formatMoney } from '../lib/format'
+import { btnDangerSm, btnGhostSm, btnPrimary, btnSuccessSm, card, input, inputSm, label, pageTitle, sectionTitle } from '../lib/styles'
 
 const ACCOUNT_TYPES: AccountType[] = ['CHECKING', 'SAVINGS', 'FX_TRADING', 'BROKERAGE']
 
@@ -50,7 +51,7 @@ function OpenAccountForm({ clientId }: { clientId: string }) {
         <select id="accountType" value={accountType} onChange={(e) => setAccountType(e.target.value as AccountType)} className={input}>
           {ACCOUNT_TYPES.map((type) => (
             <option key={type} value={type}>
-              {type}
+              {accountTypeLabel(type)}
             </option>
           ))}
         </select>
@@ -139,11 +140,11 @@ function CloseAccountPanel({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-warning-100 bg-warning-50 p-3 text-xs">
+    <div className="flex flex-col gap-2 rounded-xl border border-warning-100 bg-warning-50 p-3 text-xs dark:border-warning-500/20 dark:bg-warning-500/10">
       {hasBalance ? (
         <>
           <p className="text-ink-600">
-            This account has a balance of {account.balance.toFixed(2)} {account.currency} — where should it go?
+            This account has a balance of {formatMoney(account.balance, account.currency)} — where should it go?
           </p>
           {siblings.length > 0 ? (
             <select value={ownDestination} onChange={(e) => setOwnDestination(e.target.value)} className={inputSm}>
@@ -315,10 +316,10 @@ export function AccountsPage() {
 
   const columns: Column<AccountResponse>[] = [
     { header: 'Name', render: (a) => a.nickname ?? <span className="text-ink-400">—</span> },
-    { header: 'Type', render: (a) => a.accountType },
+    { header: 'Type', render: (a) => accountTypeLabel(a.accountType) },
     { header: 'Currency', render: (a) => a.currency },
     { header: 'Id', render: (a) => <span className="font-mono text-xs text-ink-400">{a.accountId.slice(0, 8)}</span> },
-    { header: 'Balance', render: (a) => <span className="font-mono font-semibold">{a.balance.toFixed(2)}</span> },
+    { header: 'Balance', render: (a) => <span className="font-mono font-semibold">{formatMoney(a.balance, a.currency)}</span> },
     {
       header: 'Status',
       render: (a) => <Badge variant={a.status === 'ACTIVE' ? 'success' : a.status === 'FROZEN' ? 'warning' : 'neutral'}>{a.status}</Badge>,
@@ -327,9 +328,9 @@ export function AccountsPage() {
   ]
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-10">
       <div>
-        <h1 className="text-2xl font-semibold text-ink-900">Accounts</h1>
+        <h1 className={pageTitle}>Accounts</h1>
         <p className="text-sm text-ink-400">Open accounts, deposit, withdraw, and convert between your own balances.</p>
       </div>
 
@@ -344,8 +345,10 @@ export function AccountsPage() {
 
       {activeAccounts.length >= 2 && (
         <div>
-          <h2 className="mb-2 text-sm font-semibold text-ink-700">Convert (sell balance)</h2>
-          <ConvertPanel accounts={activeAccounts} />
+          <h2 className={sectionTitle}>Convert (sell balance)</h2>
+          <div className="mt-2">
+            <ConvertPanel accounts={activeAccounts} />
+          </div>
         </div>
       )}
 
