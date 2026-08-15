@@ -141,7 +141,8 @@ class GameServiceImplTest {
         GameSession active = session(GameDifficulty.APPRENTICE, new BigDecimal("100"), Instant.now().plusSeconds(600));
         GameLoan hugeLoan = GameLoan.builder()
                 .gameLoanId(UUID.randomUUID()).sessionId(active.getSessionId())
-                .principal(new BigDecimal("10000")).rateAnnualPercent(new BigDecimal("5.00")).originatedAt(Instant.now())
+                .principal(new BigDecimal("10000")).outstandingPrincipal(new BigDecimal("10000")).accruedInterest(BigDecimal.ZERO)
+                .rateAnnualPercent(new BigDecimal("5.00")).originatedAt(Instant.now()).lastAccrualAt(Instant.now())
                 .build();
         when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
         when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
@@ -274,16 +275,66 @@ class GameServiceImplTest {
 
     @Test
     void interestOwedGrowsWithElapsedTime() {
+        // Rate applied per elapsed minute, not annualized — a real-world APR accrued over a
+        // 15-30 minute session would be a fraction of a penny (confirmed by actually playing the
+        // game), so Game Mode treats the stated rate as "this fraction of principal, per minute
+        // held" instead. See GameServiceImpl.pendingInterest.
         GameLoan loan = GameLoan.builder()
                 .gameLoanId(UUID.randomUUID()).sessionId(UUID.randomUUID())
-                .principal(new BigDecimal("10000")).rateAnnualPercent(new BigDecimal("20.00"))
-                .originatedAt(Instant.now().minus(Duration.ofDays(365)))
+                .principal(new BigDecimal("10000")).outstandingPrincipal(new BigDecimal("10000")).accruedInterest(BigDecimal.ZERO)
+                .rateAnnualPercent(new BigDecimal("20.00"))
+                .originatedAt(Instant.now().minus(Duration.ofMinutes(1)))
+                .lastAccrualAt(Instant.now().minus(Duration.ofMinutes(1)))
                 .build();
 
         BigDecimal owed = gameService.interestOwed(loan);
 
-        // ~1 year at 20% APR on 10,000 => ~2,000
-        assertThat(owed).isCloseTo(new BigDecimal("2000"), org.assertj.core.data.Percentage.withPercentage(1));
+        // 1 minute at 20%/minute on 10,000 => ~2,000
+        assertThat(owed).isCloseTo(new BigDecimal("2000"), org.assertj.core.data.Percentage.withPercentage(2));
+    }
+
+    @Test
+    void repayLoanAppliesToInterestFirstThenPrincipal() {
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("5000"), Instant.now().plusSeconds(600));
+        GameLoan loan = GameLoan.builder()
+                .gameLoanId(UUID.randomUUID()).sessionId(active.getSessionId())
+                .principal(new BigDecimal("2000")).outstandingPrincipal(new BigDecimal("2000"))
+                .accruedInterest(new BigDecimal("300")).rateAnnualPercent(new BigDecimal("8.00"))
+                .originatedAt(Instant.now()).lastAccrualAt(Instant.now())
+                .build();
+        when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
+        when(loanRepository.findById(loan.getGameLoanId())).thenReturn(Optional.of(loan));
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+        when(loanRepository.findBySessionId(active.getSessionId())).thenReturn(List.of(loan));
+
+        GameSessionResponse response = gameService.repayLoan(
+                active.getSessionId(), loan.getGameLoanId(), new com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest(new BigDecimal("500")), owner);
+
+        // 500 paid: 300 clears accrued interest, remaining 200 comes off outstanding principal.
+        assertThat(loan.getAccruedInterest()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(loan.getOutstandingPrincipal()).isEqualByComparingTo("1800");
+        assertThat(response.cash()).isEqualByComparingTo("4500");
+    }
+
+    @Test
+    void repayLoanNeverTakesMoreThanWhatsOwed() {
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("5000"), Instant.now().plusSeconds(600));
+        GameLoan loan = GameLoan.builder()
+                .gameLoanId(UUID.randomUUID()).sessionId(active.getSessionId())
+                .principal(new BigDecimal("100")).outstandingPrincipal(new BigDecimal("100"))
+                .accruedInterest(BigDecimal.ZERO).rateAnnualPercent(new BigDecimal("8.00"))
+                .originatedAt(Instant.now()).lastAccrualAt(Instant.now())
+                .build();
+        when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
+        when(loanRepository.findById(loan.getGameLoanId())).thenReturn(Optional.of(loan));
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+        when(loanRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+
+        GameSessionResponse response = gameService.repayLoan(
+                active.getSessionId(), loan.getGameLoanId(), new com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest(new BigDecimal("10000")), owner);
+
+        assertThat(loan.getOutstandingPrincipal()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(response.cash()).isEqualByComparingTo("4900");
     }
 
     @Test

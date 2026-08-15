@@ -2,6 +2,7 @@ package com.dcbate.tradingplatform.game.api;
 
 import com.dcbate.tradingplatform.domain.GameDifficulty;
 import com.dcbate.tradingplatform.game.api.dto.GameDifficultyResponse;
+import com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
 import com.dcbate.tradingplatform.game.api.dto.GamePriceResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameSessionResponse;
@@ -84,10 +85,17 @@ public class GameController {
     }
 
     @PostMapping("/sessions/{sessionId}/loans")
-    @Operation(summary = "Take a loan within a session — no repayment flow, its balance is netted out of the final score")
+    @Operation(summary = "Take a loan within a session — interest accrues per minute held until repaid or the game ends")
     public ResponseEntity<GameSessionResponse> takeLoan(
             @PathVariable UUID sessionId, @Valid @RequestBody GameLoanRequest request, Authentication authentication) {
         return ResponseEntity.ok(gameService.takeLoan(sessionId, request, CallerPrincipal.from(authentication)));
+    }
+
+    @PostMapping("/sessions/{sessionId}/loans/{loanId}/repay")
+    @Operation(summary = "Repay a game loan — applied to accrued interest first, then outstanding principal")
+    public ResponseEntity<GameSessionResponse> repayLoan(
+            @PathVariable UUID sessionId, @PathVariable UUID loanId, @Valid @RequestBody GameLoanRepayRequest request, Authentication authentication) {
+        return ResponseEntity.ok(gameService.repayLoan(sessionId, loanId, request, CallerPrincipal.from(authentication)));
     }
 
     @PostMapping("/sessions/{sessionId}/trades")

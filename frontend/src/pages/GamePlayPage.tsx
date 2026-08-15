@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import { Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ArrowLeft, Landmark, PartyPopper, SkullIcon, TimerOff } from 'lucide-react'
 import { apiErrorMessage } from '../api/client'
 import { useGameDifficulties, useGameMarket, useGameSession, useGameTrades, useStartGame, useTakeGameLoan, usePlaceGameTrade } from '../hooks/useGame'
 import { formatCountdown, formatMoney, formatQuantity, sanitizeWholeNumberInput } from '../lib/format'
 import { btnDanger, btnGhost, btnGhostSm, btnPrimary, btnSuccess, card, input, inputSm, label, listSection, sectionTitle } from '../lib/styles'
-import type { GamePriceResponse, GameSessionResponse, OrderSide } from '../types/api'
+import type { GamePriceResponse, GameSessionResponse, GameTradeResponse, OrderSide } from '../types/api'
+
+interface PricePoint {
+  time: string
+  price: number
+}
 
 function GoalProgress({ session }: { session: GameSessionResponse }) {
   const progressPercent = Math.max(0, Math.min(100, (session.netWorth / session.goalAmount) * 100))
@@ -59,6 +65,113 @@ function MarketRow({
         {price.symbol.includes('/') ? price.price.toFixed(4) : formatMoney(price.price, 'USD')}
       </span>
     </button>
+  )
+}
+
+// Trades are timestamped by the server (ISO instant); history points are timestamped by the
+// browser the moment each poll response arrives, formatted as a plain "HH:MM:SS" string (see the
+// market-tracking effect below) — matching a trade onto the chart means finding whichever history
+// point's clock time is closest to the trade's, then marking the chart at that point's x position
+// (recharts positions a ReferenceDot on a category axis by matching this value against the axis's
+// own categories, not by interpolating between them).
+function nearestHistoryTime(tradeCreatedAt: string, history: PricePoint[]): string | undefined {
+  if (history.length === 0) return undefined
+  const tradeSeconds = new Date(tradeCreatedAt).getTime() / 1000
+  let closest = history[0]
+  let closestDiff = Infinity
+  for (const point of history) {
+    const [h, m, s] = point.time.split(':').map(Number)
+    const pointSeconds = h * 3600 + m * 60 + s
+    const tradeTimeOfDay = ((tradeSeconds % 86400) + 86400) % 86400
+    const diff = Math.abs(pointSeconds - tradeTimeOfDay)
+    if (diff < closestDiff) {
+      closestDiff = diff
+      closest = point
+    }
+  }
+  return closest.time
+}
+
+function DetailChart({
+  symbol,
+  price,
+  trend,
+  history,
+  trades,
+}: {
+  symbol: string
+  price: number | undefined
+  trend: 'up' | 'down' | 'flat'
+  history: PricePoint[]
+  trades: GameTradeResponse[]
+}) {
+  const isFx = symbol.includes('/')
+  const formatted = price === undefined ? '—' : isFx ? price.toFixed(4) : formatMoney(price, 'USD')
+  const markers = trades
+    .map((t) => ({ side: t.side, price: t.price, time: nearestHistoryTime(t.createdAt, history) }))
+    .filter((m): m is { side: OrderSide; price: number; time: string } => m.time !== undefined)
+  return (
+    <div className={card}>
+      <div className="mb-3 flex items-baseline justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-ink-400">{symbol}</h2>
+          <p className="font-mono text-2xl font-bold text-ink-900">{formatted}</p>
+        </div>
+        <span className={`text-sm font-medium ${trend === 'up' ? 'text-success-600' : trend === 'down' ? 'text-error-600' : 'text-ink-400'}`}>
+          {trend === 'up' ? '▲ trending up' : trend === 'down' ? '▼ trending down' : '— flat'}
+        </span>
+      </div>
+      {history.length > 1 ? (
+        <ResponsiveContainer width="100%" height={160}>
+          <LineChart data={history} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+            <XAxis dataKey="time" tick={{ fontSize: 10, fill: 'var(--color-ink-400)' }} minTickGap={40} axisLine={false} tickLine={false} />
+            <YAxis
+              domain={['auto', 'auto']}
+              tick={{ fontSize: 10, fill: 'var(--color-ink-400)' }}
+              width={isFx ? 55 : 45}
+              tickFormatter={(v: number) => (isFx ? v.toFixed(4) : v.toFixed(0))}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip
+              formatter={(value) => (typeof value === 'number' ? (isFx ? value.toFixed(4) : formatMoney(value, 'USD')) : value)}
+              contentStyle={{ borderRadius: 8, border: '1px solid var(--color-ink-100)', background: 'var(--color-surface)' }}
+            />
+            <Line
+              type="monotone"
+              dataKey="price"
+              stroke={trend === 'down' ? '#dc2626' : '#10b981'}
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+            {markers.map((m, i) => (
+              <ReferenceDot
+                key={i}
+                x={m.time}
+                y={m.price}
+                r={5}
+                fill={m.side === 'BUY' ? '#10b981' : '#dc2626'}
+                stroke="white"
+                strokeWidth={1.5}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <p className="py-8 text-center text-xs text-ink-400">Collecting ticks — the chart fills in as prices come in.</p>
+      )}
+      {markers.length > 0 && (
+        <div className="mt-2 flex items-center gap-4 text-xs text-ink-400">
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full border border-white bg-success-600" /> Buy
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full border border-white bg-error-600" /> Sell
+          </span>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -117,12 +230,25 @@ function LoanPanel({ sessionId, ratePercent }: { sessionId: string; ratePercent:
   )
 }
 
-function TradeForm({ sessionId, symbol, price, cash }: { sessionId: string; symbol: string | null; price: number | undefined; cash: number }) {
+function TradeForm({
+  sessionId,
+  symbol,
+  price,
+  cash,
+  heldQuantity,
+}: {
+  sessionId: string
+  symbol: string | null
+  price: number | undefined
+  cash: number
+  heldQuantity: number
+}) {
   const [side, setSide] = useState<OrderSide>('BUY')
   const [quantity, setQuantity] = useState('')
   const placeTrade = usePlaceGameTrade(sessionId)
 
   const estimated = price && quantity ? price * Number(quantity) : undefined
+  const maxQuantity = side === 'BUY' ? (price ? Math.floor(cash / price) : 0) : Math.floor(heldQuantity)
 
   if (!symbol) {
     return <p className="text-sm text-ink-400">Pick a symbol from the market list to trade it.</p>
@@ -173,18 +299,30 @@ function TradeForm({ sessionId, symbol, price, cash }: { sessionId: string; symb
       </div>
       <div className="flex flex-col gap-1.5">
         <label className={label}>Shares</label>
-        <input
-          type="number"
-          min="1"
-          step="1"
-          value={quantity}
-          onChange={(e) => setQuantity(sanitizeWholeNumberInput(e.target.value))}
-          className={`w-28 ${inputSm}`}
-          required
-        />
+        <div className="flex items-center gap-1.5">
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={quantity}
+            onChange={(e) => setQuantity(sanitizeWholeNumberInput(e.target.value))}
+            className={`w-24 ${inputSm}`}
+            required
+          />
+          <button
+            type="button"
+            onClick={() => setQuantity(String(maxQuantity))}
+            disabled={maxQuantity <= 0}
+            className={btnGhostSm}
+            title={side === 'BUY' ? 'Fill with the most you can afford' : 'Fill with everything you hold'}
+          >
+            Max
+          </button>
+        </div>
       </div>
       <div className="flex flex-col gap-0.5 text-xs text-ink-400">
         <span>Cash: {formatMoney(cash, 'GBP')}</span>
+        {side === 'SELL' && <span>Held: {formatQuantity(heldQuantity)}</span>}
         {estimated !== undefined && (
           <span className="font-mono font-semibold text-ink-900">
             {side === 'BUY' ? 'Cost' : 'Proceeds'} ≈ {formatMoney(estimated, 'USD')}
@@ -291,6 +429,7 @@ export function GamePlayPage() {
 
   const previousPrices = useRef<Map<string, number>>(new Map())
   const [trends, setTrends] = useState<Map<string, 'up' | 'down' | 'flat'>>(new Map())
+  const [history, setHistory] = useState<Map<string, PricePoint[]>>(new Map())
 
   useEffect(() => {
     if (session) setTimeRemaining(session.timeRemainingSeconds)
@@ -304,13 +443,19 @@ export function GamePlayPage() {
 
   useEffect(() => {
     if (!market) return
-    const next = new Map(trends)
+    const now = new Date().toLocaleTimeString('en-GB', { hour12: false })
+    const nextTrends = new Map(trends)
+    const nextHistory = new Map(history)
     for (const { symbol, price } of market) {
       const prev = previousPrices.current.get(symbol)
-      next.set(symbol, prev === undefined || price === prev ? 'flat' : price > prev ? 'up' : 'down')
+      nextTrends.set(symbol, prev === undefined || price === prev ? 'flat' : price > prev ? 'up' : 'down')
       previousPrices.current.set(symbol, price)
+
+      const existing = nextHistory.get(symbol) ?? []
+      nextHistory.set(symbol, [...existing, { time: now, price }].slice(-60))
     }
-    setTrends(next)
+    setTrends(nextTrends)
+    setHistory(nextHistory)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [market])
 
@@ -347,15 +492,33 @@ export function GamePlayPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div>
           <h2 className={`${sectionTitle} mb-2`}>Live market</h2>
+          <p className="mb-2 text-xs text-ink-400">Click a symbol to chart it and trade it.</p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {market?.map((p) => (
               <MarketRow key={p.symbol} price={p} trend={trends.get(p.symbol) ?? 'flat'} selected={p.symbol === selectedSymbol} onSelect={() => setSelectedSymbol(p.symbol)} />
             ))}
           </div>
         </div>
-        <div className={card}>
-          <h2 className={`${sectionTitle} mb-3`}>Trade</h2>
-          <TradeForm sessionId={sessionId} symbol={selectedSymbol} price={selectedPrice} cash={session.cash} />
+        <div className="flex flex-col gap-4">
+          {selectedSymbol && (
+            <DetailChart
+              symbol={selectedSymbol}
+              price={selectedPrice}
+              trend={trends.get(selectedSymbol) ?? 'flat'}
+              history={history.get(selectedSymbol) ?? []}
+              trades={(trades ?? []).filter((t) => t.symbol === selectedSymbol)}
+            />
+          )}
+          <div className={card}>
+            <h2 className={`${sectionTitle} mb-3`}>Trade</h2>
+            <TradeForm
+              sessionId={sessionId}
+              symbol={selectedSymbol}
+              price={selectedPrice}
+              cash={session.cash}
+              heldQuantity={session.positions.find((p) => p.symbol === selectedSymbol)?.quantity ?? 0}
+            />
+          </div>
         </div>
       </div>
 

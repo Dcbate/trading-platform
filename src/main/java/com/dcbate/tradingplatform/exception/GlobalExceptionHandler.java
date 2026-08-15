@@ -17,7 +17,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler({OrderNotFoundException.class, PaymentNotFoundException.class, AccountNotFoundException.class,
-            TransferNotFoundException.class, LoanNotFoundException.class, GameSessionNotFoundException.class})
+            TransferNotFoundException.class, LoanNotFoundException.class, GameSessionNotFoundException.class,
+            GameLoanNotFoundException.class})
     public ResponseEntity<ApiError> handleNotFound(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, List.of(e.getMessage()), request);
     }

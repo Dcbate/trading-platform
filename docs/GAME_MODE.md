@@ -31,17 +31,40 @@ There's no separate "leverage" or "margin call" mechanic. A loan already lets a 
 more than their starting cash — that's what leverage *is* — so a second multiplier system on top
 would model the same thing twice. "Bankrupt" is simply net worth going negative (see §4);
 "Rogue mode's chaos" is the one thing that genuinely needed its own flag: an occasional
-outsized price jump on top of its already-wide normal moves (`GameMarketServiceImpl.randomWalk`).
+outsized price jump on top of its already-wide normal moves (`GameMarketServiceImpl.advance`).
 
 ## 3. The simulated market
 
-`GameMarketServiceImpl` runs one independent random walk per difficulty tier — everyone playing
+`GameMarketServiceImpl` runs one independent price feed per difficulty tier — everyone playing
 "Trader" sees the same live prices, same as the real FX desk's clients all see the same quote.
-Ticks every 2 seconds (`GameMarketScheduler`), in memory only (no Redis, no Kafka — a game
+Ticks every 5 seconds (`GameMarketScheduler`), in memory only (no Redis, no Kafka — a game
 session never outlives 30 minutes, so nothing here needs to survive a restart or be visible
 outside this one JVM). 3 FX pairs (EUR/USD, GBP/USD, USD/JPY) and 10 stocks (AAPL, MSFT, NVDA,
 GOOGL, AMZN, TSLA, META, NFLX, INTC, AMD), seeded from the same kind of round starting points the
 real desk uses — again, not real quotes.
+
+**Prices move in regimes, not a pure random walk.** The first version of this class gave every
+symbol an equal, independent chance of moving up or down on every tick — a textbook symmetric
+random walk. That has zero expected drift by construction: no strategy beats it, because there's
+nothing to read. Actually playing the game with that model confirmed it — net worth just wandered
+near the starting cash for the entire session regardless of what you did, on every difficulty,
+including Apprentice. A random walk isn't a *bug* in the mathematical sense (it's what "no
+information advantage" is supposed to look like), but it makes a bad *game*, since the whole point
+is to practice reading a market and acting on it.
+
+The fix: each symbol now runs through a **trend regime** lasting 10-40 ticks (50 seconds to a few
+minutes at the current tick rate) with a persistent directional bias, layered with a smaller
+amount of tick-to-tick jitter for texture. When a regime ends, a new one rolls with its own random
+direction and magnitude. This is the thing a player can actually *read* off the ticker — a
+symbol printing green for the last few ticks is showing you its current regime, and momentum over
+seconds-to-minutes timeframes is a real, well-documented feature of actual markets, not an
+invented mechanic. Nothing is rigged to always go up: direction is still a coin flip at the start
+of each regime, and every symbol trends independently. What changed is that the coin flip now
+*persists* long enough to be tradeable, instead of re-flipping every single tick.
+
+Regime magnitude is drawn from the upper half of the existing `fxVolatility`/`stockVolatility`
+band per difficulty (see the table above) — no new difficulty parameters were needed, the fields
+just mean "how strong is a regime's trend" instead of "how big is one tick's random jump."
 
 ## 4. Win, lose, and how a session gets evaluated
 
@@ -81,6 +104,15 @@ A BUY debits `notional + fee` from cash and folds into the position's weighted-a
 shape as the real desk's `ExecutionServiceImpl.settleFill`. A SELL credits `notional − fee`,
 reduces (or closes) the position, and records `realizedPnl = (fillPrice − avgCost) × quantity −
 fee` on the trade row — that's the number "best trade" in personal stats reads from.
+
+Clicking a symbol on the game screen charts it — the frontend accumulates each poll's price into
+a rolling history per symbol (the same pattern `useLivePrices` already uses for the real FX/stock
+pages, just kept local to `GamePlayPage` instead of a shared hook, since Game Mode's price shape
+and polling cadence are its own thing). Nothing is persisted server-side for this; it's exactly
+the same live prices the trade form already reads, just kept around in the browser long enough to
+draw a line through them. A "Max" button next to the shares field fills in the most you can
+afford (BUY) or everything you currently hold (SELL) — `Math.floor(cash / price)` and the held
+position's quantity respectively, both already-available numbers, not a new calculation.
 
 ## 6. Personal stats, not a leaderboard
 

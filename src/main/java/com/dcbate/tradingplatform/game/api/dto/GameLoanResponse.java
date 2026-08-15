@@ -5,5 +5,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record GameLoanResponse(
-        UUID gameLoanId, BigDecimal principal, BigDecimal interestOwed, BigDecimal rateAnnualPercent, Instant originatedAt) {
+        UUID gameLoanId,
+        BigDecimal principal,
+        BigDecimal outstandingPrincipal,
+        BigDecimal interestOwed,
+        BigDecimal rateAnnualPercent,
+        Instant originatedAt) {
 }

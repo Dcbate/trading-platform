@@ -1,6 +1,7 @@
 package com.dcbate.tradingplatform.game.service;
 
 import com.dcbate.tradingplatform.domain.GameDifficulty;
+import com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameSessionResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameStatsResponse;
@@ -24,6 +25,9 @@ public interface GameService {
     GameSessionResponse getSession(UUID sessionId, CallerPrincipal caller);
 
     GameSessionResponse takeLoan(UUID sessionId, GameLoanRequest request, CallerPrincipal caller);
+
+    /** Applies a repayment to accrued interest first, then outstanding principal — same order the real loan repayment uses. */
+    GameSessionResponse repayLoan(UUID sessionId, UUID gameLoanId, GameLoanRepayRequest request, CallerPrincipal caller);
 
     GameSessionResponse placeTrade(UUID sessionId, GameTradeRequest request, CallerPrincipal caller);
 

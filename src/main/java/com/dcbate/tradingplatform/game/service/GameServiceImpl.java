@@ -9,8 +9,10 @@ import com.dcbate.tradingplatform.domain.GameTrade;
 import com.dcbate.tradingplatform.domain.OrderSide;
 import com.dcbate.tradingplatform.exception.GameInsufficientFundsException;
 import com.dcbate.tradingplatform.exception.GameInsufficientPositionException;
+import com.dcbate.tradingplatform.exception.GameLoanNotFoundException;
 import com.dcbate.tradingplatform.exception.GameSessionNotActiveException;
 import com.dcbate.tradingplatform.exception.GameSessionNotFoundException;
+import com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanResponse;
 import com.dcbate.tradingplatform.game.api.dto.GamePositionResponse;
@@ -54,8 +56,6 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class GameServiceImpl implements GameService {
-
-    private static final long SECONDS_PER_YEAR = 365L * 24 * 3600;
 
     private final GameSessionRepository sessionRepository;
     private final GamePositionRepository positionRepository;
@@ -112,15 +112,61 @@ public class GameServiceImpl implements GameService {
         session.setCash(session.getCash().add(request.amount()));
         sessionRepository.save(session);
 
+        Instant now = Instant.now();
         loanRepository.save(GameLoan.builder()
                 .gameLoanId(UUID.randomUUID())
                 .sessionId(sessionId)
                 .principal(request.amount())
+                .outstandingPrincipal(request.amount())
+                .accruedInterest(BigDecimal.ZERO)
                 .rateAnnualPercent(session.getDifficulty().getLoanRateAnnualPercent())
-                .originatedAt(Instant.now())
+                .originatedAt(now)
+                .lastAccrualAt(now)
                 .build());
 
         log.info("Game loan taken: sessionId={}, amount={}, rate={}", sessionId, request.amount(), session.getDifficulty().getLoanRateAnnualPercent());
+        return toResponse(session);
+    }
+
+    @Override
+    @Transactional
+    public GameSessionResponse repayLoan(UUID sessionId, UUID gameLoanId, GameLoanRepayRequest request, CallerPrincipal caller) {
+        GameSession session = requireSession(sessionId);
+        caller.requireOwner(session.getClientId());
+        evaluate(session);
+        requireActive(session);
+
+        GameLoan loan = loanRepository.findById(gameLoanId)
+                .filter(l -> l.getSessionId().equals(sessionId))
+                .orElseThrow(() -> new GameLoanNotFoundException(gameLoanId));
+
+        // Settle whatever's accrued since the last touch into a fixed number before applying the
+        // payment — otherwise the still-ticking live delta would make interest "reappear" the
+        // instant after paying it off, computed from a stale lastAccrualAt.
+        settleAccrual(loan);
+
+        BigDecimal totalOwedNow = loan.getOutstandingPrincipal().add(loan.getAccruedInterest());
+        BigDecimal payment = request.amount().min(totalOwedNow);
+
+        if (session.getCash().compareTo(payment) < 0) {
+            throw new GameInsufficientFundsException(sessionId, payment, session.getCash());
+        }
+        session.setCash(session.getCash().subtract(payment));
+
+        BigDecimal remaining = payment;
+        BigDecimal interestPaid = remaining.min(loan.getAccruedInterest());
+        loan.setAccruedInterest(loan.getAccruedInterest().subtract(interestPaid));
+        remaining = remaining.subtract(interestPaid);
+        BigDecimal principalPaid = remaining.min(loan.getOutstandingPrincipal());
+        loan.setOutstandingPrincipal(loan.getOutstandingPrincipal().subtract(principalPaid));
+
+        loanRepository.save(loan);
+        sessionRepository.save(session);
+
+        log.info("Game loan repayment: sessionId={}, gameLoanId={}, payment={}, outstandingPrincipal={}, accruedInterest={}",
+                sessionId, gameLoanId, payment, loan.getOutstandingPrincipal(), loan.getAccruedInterest());
+
+        evaluate(session);
         return toResponse(session);
     }
 
@@ -279,19 +325,43 @@ public class GameServiceImpl implements GameService {
     }
 
     private BigDecimal totalOwed(GameLoan loan) {
-        return loan.getPrincipal().add(interestOwed(loan));
+        return loan.getOutstandingPrincipal().add(interestOwed(loan));
     }
 
-    /** Simple (non-compounding) interest, computed from elapsed wall-clock time rather than accrued/persisted incrementally — a session never runs longer than 30 minutes, so there's nothing a scheduled job would need to catch up on between reads. */
+    /**
+     * Interest owed right now: whatever's already been settled (persisted, from a previous
+     * repayment) plus the live delta accrued since {@code lastAccrualAt} — not yet written down,
+     * since a plain read (a session poll) shouldn't cause a database write every few seconds.
+     */
     BigDecimal interestOwed(GameLoan loan) {
-        long secondsElapsed = Duration.between(loan.getOriginatedAt(), Instant.now()).getSeconds();
-        if (secondsElapsed <= 0) {
+        return loan.getAccruedInterest().add(pendingInterest(loan));
+    }
+
+    /**
+     * Rate applied per elapsed <b>minute</b>, not annualized — the real {@code Loan}'s interest
+     * is a true annual rate accrued daily (see {@code LoanServiceImplTest}), which is the right
+     * model for a loan that might sit outstanding for months. A Game Mode session lasts at most
+     * 30 minutes; annualizing the same rate would make interest accrue in fractions of a penny
+     * for the entire game (confirmed by playing it — a £5,000 loan at 20% APR held for the full
+     * 30 minutes accrued about 6p), which defeats the entire point of modeling interest as a
+     * cost. Treating the stated rate as "this fraction of principal, per minute held" keeps loans
+     * a real, felt tradeoff within a session's actual timescale.
+     */
+    private BigDecimal pendingInterest(GameLoan loan) {
+        double minutesElapsed = Duration.between(loan.getLastAccrualAt(), Instant.now()).toMillis() / 60_000.0;
+        if (minutesElapsed <= 0) {
             return BigDecimal.ZERO;
         }
-        return loan.getPrincipal()
+        return loan.getOutstandingPrincipal()
                 .multiply(loan.getRateAnnualPercent())
-                .multiply(BigDecimal.valueOf(secondsElapsed))
-                .divide(BigDecimal.valueOf(100L * SECONDS_PER_YEAR), 8, RoundingMode.HALF_UP);
+                .multiply(BigDecimal.valueOf(minutesElapsed))
+                .divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+    }
+
+    /** Folds the live pending delta into the persisted {@code accruedInterest} and resets the accrual clock — called before a repayment needs an exact, stable number to apply a payment against. */
+    private void settleAccrual(GameLoan loan) {
+        loan.setAccruedInterest(loan.getAccruedInterest().add(pendingInterest(loan)));
+        loan.setLastAccrualAt(Instant.now());
     }
 
     private GameSessionResponse toResponse(GameSession session) {
@@ -304,8 +374,13 @@ public class GameServiceImpl implements GameService {
                 })
                 .toList();
 
+        // A loan paid off in full (nothing outstanding, nothing accrued) drops off the list —
+        // there's nothing left to show or repay, same as the real Loan's PAID_OFF status just
+        // being filtered out of a client-facing summary rather than a status enum here.
         List<GameLoanResponse> loans = loanRepository.findBySessionId(session.getSessionId()).stream()
-                .map(l -> new GameLoanResponse(l.getGameLoanId(), l.getPrincipal(), interestOwed(l), l.getRateAnnualPercent(), l.getOriginatedAt()))
+                .filter(l -> l.getOutstandingPrincipal().signum() > 0 || interestOwed(l).signum() > 0)
+                .map(l -> new GameLoanResponse(
+                        l.getGameLoanId(), l.getPrincipal(), l.getOutstandingPrincipal(), interestOwed(l), l.getRateAnnualPercent(), l.getOriginatedAt()))
                 .toList();
 
         BigDecimal netWorth = session.getStatus() == GameStatus.IN_PROGRESS ? computeNetWorth(session) : session.getFinalNetWorth();

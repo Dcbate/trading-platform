@@ -10,6 +10,11 @@ import type {
   OrderSide,
 } from '../types/api'
 
+// Matches GameMarketScheduler's 5-second server tick — polling faster than the server actually
+// changes anything just adds requests without fresher data, and this is deliberately slower than
+// the real desk's 2-3s cadence so a trend regime is actually readable before it's gone.
+const GAME_POLL_INTERVAL_MS = 5000
+
 export function useGameDifficulties() {
   return useQuery({
     queryKey: ['game', 'difficulties'],
@@ -23,7 +28,7 @@ export function useGameMarket(difficulty: GameDifficultyCode | undefined) {
     queryKey: ['game', 'market', difficulty],
     queryFn: () => apiClient.get<GamePriceResponse[]>('/v1/game/market', { params: { difficulty } }).then((r) => r.data),
     enabled: !!difficulty,
-    refetchInterval: 2000,
+    refetchInterval: GAME_POLL_INTERVAL_MS,
     // Same fix as useLivePrices — without this the ticker (and the whole point of "the clock is
     // ticking") silently freezes the moment the tab isn't the active one.
     refetchIntervalInBackground: true,
@@ -48,7 +53,7 @@ export function useGameSession(sessionId: string | undefined) {
     enabled: !!sessionId,
     // Stop polling once the game has actually ended server-side — the win/lose screen is the
     // final state, there's nothing left to refresh.
-    refetchInterval: (query) => (query.state.data?.status === 'IN_PROGRESS' ? 2000 : false),
+    refetchInterval: (query) => (query.state.data?.status === 'IN_PROGRESS' ? GAME_POLL_INTERVAL_MS : false),
     refetchIntervalInBackground: true,
   })
 }
@@ -58,7 +63,7 @@ export function useGameTrades(sessionId: string | undefined) {
     queryKey: ['game', 'trades', sessionId],
     queryFn: () => apiClient.get<GameTradeResponse[]>(`/v1/game/sessions/${sessionId}/trades`).then((r) => r.data),
     enabled: !!sessionId,
-    refetchInterval: 2000,
+    refetchInterval: GAME_POLL_INTERVAL_MS,
     refetchIntervalInBackground: true,
   })
 }

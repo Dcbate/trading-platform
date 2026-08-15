@@ -17,10 +17,22 @@ import org.springframework.stereotype.Service;
 /**
  * @see GameMarketService
  *
- * All players in the same difficulty tier see the same live prices — one shared random walk per
- * tier, not one per session. That's simpler than isolating a market per session and arguably more
+ * All players in the same difficulty tier see the same live prices — one shared walk per tier,
+ * not one per session. That's simpler than isolating a market per session and arguably more
  * realistic: everyone in "Trader" mode is trading the same simulated market, same as a real FX
  * desk's clients all see the same quote.
+ *
+ * <p>Prices move in <b>regimes</b>, not a pure symmetric random walk. A pure walk (equal
+ * up/down odds every tick, no persistence) is what the first version of this class did, and it
+ * has zero expected drift by construction — no amount of skill changes the odds, so a session's
+ * net worth just wanders near its starting point for the whole game (confirmed by actually
+ * playing it: Apprentice never got anywhere near its goal). A regime is a run of ticks that all
+ * lean the same direction — the thing a player can actually *read* off the ticker (three greens
+ * in a row) and trade against, the same way short-term momentum is a real, well-documented
+ * feature of real markets over seconds-to-minutes timeframes. Each symbol still moves
+ * independently and regime direction is randomized, so nothing here is rigged to always go up —
+ * only readable and thus tradeable, which is what makes the game winnable through attention and
+ * leverage (loans) rather than a coin flip.
  */
 @Slf4j
 @Service
@@ -49,51 +61,84 @@ public class GameMarketServiceImpl implements GameMarketService {
     private static final Set<String> FX_SYMBOLS = FX_SEED_PRICES.keySet();
     private static final double CHAOS_SPIKE_PROBABILITY = 0.04;
     private static final double CHAOS_SPIKE_MOVE_FRACTION = 0.20;
+    private static final int MIN_REGIME_TICKS = 10;
+    private static final int MAX_REGIME_TICKS = 40;
 
-    private final Map<GameDifficulty, Map<String, BigDecimal>> pricesByDifficulty = new EnumMap<>(GameDifficulty.class);
+    /** One symbol's live state: its price, and the trend regime currently driving it. */
+    private static final class SymbolState {
+        private volatile BigDecimal price;
+        private volatile double trendPerTick;
+        private volatile int regimeTicksRemaining;
+
+        private SymbolState(BigDecimal price) {
+            this.price = price;
+        }
+    }
+
+    private final Map<GameDifficulty, Map<String, SymbolState>> statesByDifficulty = new EnumMap<>(GameDifficulty.class);
 
     @PostConstruct
     void seed() {
         for (GameDifficulty difficulty : GameDifficulty.values()) {
-            Map<String, BigDecimal> prices = new ConcurrentHashMap<>();
-            prices.putAll(FX_SEED_PRICES);
-            prices.putAll(STOCK_SEED_PRICES);
-            pricesByDifficulty.put(difficulty, prices);
+            Map<String, SymbolState> states = new ConcurrentHashMap<>();
+            FX_SEED_PRICES.forEach((symbol, price) -> states.put(symbol, new SymbolState(price)));
+            STOCK_SEED_PRICES.forEach((symbol, price) -> states.put(symbol, new SymbolState(price)));
+            statesByDifficulty.put(difficulty, states);
         }
     }
 
     @Override
     public void tick() {
         for (GameDifficulty difficulty : GameDifficulty.values()) {
-            Map<String, BigDecimal> prices = pricesByDifficulty.get(difficulty);
+            Map<String, SymbolState> states = statesByDifficulty.get(difficulty);
             for (String symbol : FX_SYMBOLS) {
-                prices.compute(symbol, (s, previous) -> randomWalk(previous, difficulty.getFxVolatility(), difficulty.isChaosMode()));
+                advance(states.get(symbol), difficulty.getFxVolatility(), difficulty.isChaosMode());
             }
             for (String symbol : STOCK_SEED_PRICES.keySet()) {
-                prices.compute(symbol, (s, previous) -> randomWalk(previous, difficulty.getStockVolatility(), difficulty.isChaosMode()));
+                advance(states.get(symbol), difficulty.getStockVolatility(), difficulty.isChaosMode());
             }
         }
     }
 
-    private BigDecimal randomWalk(BigDecimal previous, double baseVolatility, boolean chaosMode) {
+    /**
+     * Advances one symbol by one tick: rolls a new trend regime if the current one has run out,
+     * applies that regime's bias plus a small residual jitter, and — for chaos-mode difficulties
+     * only — occasionally layers an outsized one-tick spike on top.
+     */
+    private void advance(SymbolState state, double baseVolatility, boolean chaosMode) {
         ThreadLocalRandom random = ThreadLocalRandom.current();
-        double maxMoveFraction = baseVolatility;
-        if (chaosMode && random.nextDouble() < CHAOS_SPIKE_PROBABILITY) {
-            maxMoveFraction = CHAOS_SPIKE_MOVE_FRACTION;
+
+        if (state.regimeTicksRemaining <= 0) {
+            // Magnitude drawn from the upper half of the volatility band so every regime reads as
+            // an actual trend, not a wishy-washy near-zero drift indistinguishable from noise.
+            double magnitude = baseVolatility * (0.5 + random.nextDouble() * 0.5);
+            state.trendPerTick = random.nextBoolean() ? magnitude : -magnitude;
+            state.regimeTicksRemaining = MIN_REGIME_TICKS + random.nextInt(MAX_REGIME_TICKS - MIN_REGIME_TICKS + 1);
         }
-        double pctMove = (random.nextDouble() - 0.5) * 2 * maxMoveFraction;
-        BigDecimal next = previous.add(previous.multiply(BigDecimal.valueOf(pctMove))).setScale(4, RoundingMode.HALF_UP);
-        return next.signum() > 0 ? next : previous;
+        state.regimeTicksRemaining--;
+
+        double jitter = (random.nextDouble() - 0.5) * 2 * (baseVolatility * 0.3);
+        double pctMove = state.trendPerTick + jitter;
+
+        if (chaosMode && random.nextDouble() < CHAOS_SPIKE_PROBABILITY) {
+            double spike = CHAOS_SPIKE_MOVE_FRACTION * (random.nextBoolean() ? 1 : -1);
+            pctMove += spike;
+        }
+
+        BigDecimal next = state.price.add(state.price.multiply(BigDecimal.valueOf(pctMove))).setScale(4, RoundingMode.HALF_UP);
+        state.price = next.signum() > 0 ? next : state.price;
     }
 
     @Override
     public Map<String, BigDecimal> currentPrices(GameDifficulty difficulty) {
-        return Map.copyOf(pricesByDifficulty.get(difficulty));
+        Map<String, BigDecimal> snapshot = new LinkedHashMap<>();
+        statesByDifficulty.get(difficulty).forEach((symbol, state) -> snapshot.put(symbol, state.price));
+        return snapshot;
     }
 
     @Override
     public Optional<BigDecimal> currentPrice(GameDifficulty difficulty, String symbol) {
-        return Optional.ofNullable(pricesByDifficulty.get(difficulty).get(symbol));
+        return Optional.ofNullable(statesByDifficulty.get(difficulty).get(symbol)).map(s -> s.price);
     }
 
     @Override

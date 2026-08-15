@@ -14,11 +14,16 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * A loan taken during a Game Mode session — unlike a real {@code Loan}, there's no repayment
- * flow: a session only lasts 15-30 minutes, so "pay it down before the timer runs out" isn't a
- * meaningful mechanic. Interest owed is computed on the fly from {@code originatedAt} at
- * valuation time ({@code GameServiceImpl.interestOwed}) rather than accrued and persisted
- * incrementally, since nothing needs it to survive between reads.
+ * A loan taken during a Game Mode session. {@code principal} is the original amount borrowed —
+ * fixed, for display/stats. {@code outstandingPrincipal} and {@code accruedInterest} are what's
+ * actually still owed and move as the loan is repaid ({@code GameServiceImpl.repayLoan}), the
+ * same three-way split the real {@code Loan} entity uses. Unlike the real loan, there's no
+ * scheduled accrual job — {@code accruedInterest} only gets settled (the pending amount since
+ * {@code lastAccrualAt} folded in) at the moments that actually need an exact number: a
+ * repayment, or the session ending. A live read in between (a session poll) computes the pending
+ * amount on the fly without writing it, the same non-mutating style the original interest-only
+ * version of this class used — a session never outlives 30 minutes, so there's nothing here that
+ * needs to survive a restart or be visible outside this one read.
  */
 @Entity
 @Table(name = "game_loans")
@@ -39,8 +44,17 @@ public class GameLoan {
     private BigDecimal principal;
 
     @Column(nullable = false)
+    private BigDecimal outstandingPrincipal;
+
+    @Column(nullable = false)
+    private BigDecimal accruedInterest;
+
+    @Column(nullable = false)
     private BigDecimal rateAnnualPercent;
 
     @Column(nullable = false)
     private Instant originatedAt;
+
+    @Column(nullable = false)
+    private Instant lastAccrualAt;
 }
