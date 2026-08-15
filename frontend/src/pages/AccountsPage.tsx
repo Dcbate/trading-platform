@@ -13,9 +13,11 @@ import {
 } from '../hooks/useAccounts'
 import { useAppStore } from '../store/appStore'
 import { TransactionTable, type Column } from '../components/TransactionTable'
+import { Badge } from '../components/Badge'
 import { accountLabel, type AccountResponse, type AccountType } from '../types/api'
+import { btnDangerSm, btnGhostSm, btnPrimary, btnSuccessSm, card, input, inputSm, label } from '../lib/styles'
 
-const ACCOUNT_TYPES: AccountType[] = ['CHECKING', 'SAVINGS', 'FX_TRADING']
+const ACCOUNT_TYPES: AccountType[] = ['CHECKING', 'SAVINGS', 'FX_TRADING', 'BROKERAGE']
 
 function OpenAccountForm({ clientId }: { clientId: string }) {
   const { data: currencies } = useCurrencies()
@@ -40,17 +42,12 @@ function OpenAccountForm({ clientId }: { clientId: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700" htmlFor="accountType">
+    <form onSubmit={handleSubmit} className={`${card} flex flex-wrap items-end gap-3`}>
+      <div className="flex flex-col gap-1.5">
+        <label className={label} htmlFor="accountType">
           Type
         </label>
-        <select
-          id="accountType"
-          value={accountType}
-          onChange={(e) => setAccountType(e.target.value as AccountType)}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-        >
+        <select id="accountType" value={accountType} onChange={(e) => setAccountType(e.target.value as AccountType)} className={input}>
           {ACCOUNT_TYPES.map((type) => (
             <option key={type} value={type}>
               {type}
@@ -58,17 +55,11 @@ function OpenAccountForm({ clientId }: { clientId: string }) {
           ))}
         </select>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700" htmlFor="currency">
+      <div className="flex flex-col gap-1.5">
+        <label className={label} htmlFor="currency">
           Currency
         </label>
-        <select
-          id="currency"
-          value={currency}
-          onChange={(e) => setCurrency(e.target.value)}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          required
-        >
+        <select id="currency" value={currency} onChange={(e) => setCurrency(e.target.value)} className={input} required>
           <option value="" disabled>
             Select
           </option>
@@ -79,9 +70,9 @@ function OpenAccountForm({ clientId }: { clientId: string }) {
           ))}
         </select>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700" htmlFor="nickname">
-          Name <span className="font-normal text-slate-400">(optional)</span>
+      <div className="flex flex-col gap-1.5">
+        <label className={label} htmlFor="nickname">
+          Name <span className="font-normal normal-case text-ink-400">(optional)</span>
         </label>
         <input
           id="nickname"
@@ -90,11 +81,11 @@ function OpenAccountForm({ clientId }: { clientId: string }) {
           value={nickname}
           onChange={(e) => setNickname(e.target.value)}
           placeholder="e.g. Rent fund"
-          className="w-40 rounded-md border border-slate-300 px-3 py-2 text-sm"
+          className={`w-40 ${input}`}
         />
       </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700" htmlFor="openingBalance">
+      <div className="flex flex-col gap-1.5">
+        <label className={label} htmlFor="openingBalance">
           Opening balance
         </label>
         <input
@@ -104,14 +95,10 @@ function OpenAccountForm({ clientId }: { clientId: string }) {
           step="0.01"
           value={openingBalance}
           onChange={(e) => setOpeningBalance(e.target.value)}
-          className="w-32 rounded-md border border-slate-300 px-3 py-2 text-sm"
+          className={`w-32 ${input}`}
         />
       </div>
-      <button
-        type="submit"
-        disabled={openAccount.isPending || !currency}
-        className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
-      >
+      <button type="submit" disabled={openAccount.isPending || !currency} className={btnPrimary}>
         {openAccount.isPending ? 'Opening…' : 'Open account'}
       </button>
     </form>
@@ -152,18 +139,14 @@ function CloseAccountPanel({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs">
+    <div className="flex flex-col gap-2 rounded-xl border border-warning-100 bg-warning-50 p-3 text-xs">
       {hasBalance ? (
         <>
-          <p className="text-slate-600">
+          <p className="text-ink-600">
             This account has a balance of {account.balance.toFixed(2)} {account.currency} — where should it go?
           </p>
           {siblings.length > 0 ? (
-            <select
-              value={ownDestination}
-              onChange={(e) => setOwnDestination(e.target.value)}
-              className="rounded-md border border-slate-300 px-2 py-1"
-            >
+            <select value={ownDestination} onChange={(e) => setOwnDestination(e.target.value)} className={inputSm}>
               {siblings.map((s) => (
                 <option key={s.accountId} value={s.accountId}>
                   {accountLabel(s)}
@@ -172,9 +155,7 @@ function CloseAccountPanel({
               <option value={OTHER_DESTINATION}>A different account (enter its id)…</option>
             </select>
           ) : (
-            <p className="text-slate-500">
-              You don't have another {account.currency} account — enter the outside account id to send it to:
-            </p>
+            <p className="text-ink-400">You don't have another {account.currency} account — enter the outside account id to send it to:</p>
           )}
           {(siblings.length === 0 || ownDestination === OTHER_DESTINATION) && (
             <input
@@ -182,23 +163,18 @@ function CloseAccountPanel({
               value={otherDestinationId}
               onChange={(e) => setOtherDestinationId(e.target.value)}
               placeholder="destination account id"
-              className="rounded-md border border-slate-300 px-2 py-1"
+              className={inputSm}
             />
           )}
         </>
       ) : (
-        <p className="text-slate-600">Close this account? This can't be undone.</p>
+        <p className="text-ink-600">Close this account? This can't be undone.</p>
       )}
       <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={handleConfirm}
-          disabled={closeAccount.isPending || !canConfirm}
-          className="rounded-md bg-red-700 px-2 py-1 text-white hover:bg-red-800 disabled:opacity-50"
-        >
+        <button type="button" onClick={handleConfirm} disabled={closeAccount.isPending || !canConfirm} className={btnDangerSm}>
           {closeAccount.isPending ? 'Closing…' : 'Confirm close'}
         </button>
-        <button type="button" onClick={onDone} className="rounded-md border border-slate-300 px-2 py-1 text-slate-600 hover:bg-slate-50">
+        <button type="button" onClick={onDone} className={btnGhostSm}>
           Cancel
         </button>
       </div>
@@ -229,7 +205,7 @@ function AccountActions({ account, allAccounts }: { account: AccountResponse; al
   }
 
   if (account.status !== 'ACTIVE') {
-    return <span className="text-xs text-slate-400">{account.status}</span>
+    return <span className="text-xs text-ink-400">{account.status}</span>
   }
 
   if (closing) {
@@ -240,7 +216,7 @@ function AccountActions({ account, allAccounts }: { account: AccountResponse; al
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       <input
         type="number"
         min="0.01"
@@ -248,30 +224,15 @@ function AccountActions({ account, allAccounts }: { account: AccountResponse; al
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
         placeholder="amount"
-        className="w-24 rounded-md border border-slate-300 px-2 py-1 text-xs"
+        className={`w-24 ${inputSm}`}
       />
-      <button
-        type="button"
-        onClick={() => run(deposit, 'Deposit')}
-        disabled={deposit.isPending}
-        className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-      >
+      <button type="button" onClick={() => run(deposit, 'Deposit')} disabled={deposit.isPending} className={btnSuccessSm}>
         Deposit
       </button>
-      <button
-        type="button"
-        onClick={() => run(withdraw, 'Withdrawal')}
-        disabled={withdraw.isPending}
-        className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-      >
+      <button type="button" onClick={() => run(withdraw, 'Withdrawal')} disabled={withdraw.isPending} className={btnGhostSm}>
         Withdraw
       </button>
-      <button
-        type="button"
-        onClick={() => setClosing(true)}
-        disabled={closeAccount.isPending}
-        className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
-      >
+      <button type="button" onClick={() => setClosing(true)} disabled={closeAccount.isPending} className={btnDangerSm}>
         Close
       </button>
     </div>
@@ -301,14 +262,10 @@ function ConvertPanel({ accounts }: { accounts: AccountResponse[] }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">Sell from</label>
-        <select
-          value={fromAccountId}
-          onChange={(e) => setFromAccountId(e.target.value)}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-        >
+    <form onSubmit={handleSubmit} className={`${card} flex flex-wrap items-end gap-3`}>
+      <div className="flex flex-col gap-1.5">
+        <label className={label}>Sell from</label>
+        <select value={fromAccountId} onChange={(e) => setFromAccountId(e.target.value)} className={input}>
           {accounts.map((a) => (
             <option key={a.accountId} value={a.accountId}>
               {accountLabel(a)}
@@ -316,14 +273,9 @@ function ConvertPanel({ accounts }: { accounts: AccountResponse[] }) {
           ))}
         </select>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">Buy into</label>
-        <select
-          value={toAccountId}
-          onChange={(e) => setToAccountId(e.target.value)}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          required
-        >
+      <div className="flex flex-col gap-1.5">
+        <label className={label}>Buy into</label>
+        <select value={toAccountId} onChange={(e) => setToAccountId(e.target.value)} className={input} required>
           <option value="" disabled>
             Select
           </option>
@@ -336,23 +288,19 @@ function ConvertPanel({ accounts }: { accounts: AccountResponse[] }) {
             ))}
         </select>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">Amount</label>
+      <div className="flex flex-col gap-1.5">
+        <label className={label}>Amount</label>
         <input
           type="number"
           min="0.01"
           step="0.01"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          className="w-32 rounded-md border border-slate-300 px-3 py-2 text-sm"
+          className={`w-32 ${input}`}
           required
         />
       </div>
-      <button
-        type="submit"
-        disabled={convert.isPending || !toAccountId}
-        className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
-      >
+      <button type="submit" disabled={convert.isPending || !toAccountId} className={btnPrimary}>
         {convert.isPending ? 'Converting…' : 'Convert balance'}
       </button>
     </form>
@@ -366,20 +314,23 @@ export function AccountsPage() {
   const activeAccounts = (accounts ?? []).filter((a) => a.status === 'ACTIVE')
 
   const columns: Column<AccountResponse>[] = [
-    { header: 'Name', render: (a) => a.nickname ?? <span className="text-slate-400">—</span> },
+    { header: 'Name', render: (a) => a.nickname ?? <span className="text-ink-400">—</span> },
     { header: 'Type', render: (a) => a.accountType },
     { header: 'Currency', render: (a) => a.currency },
-    { header: 'Id', render: (a) => <span className="font-mono text-xs text-slate-400">{a.accountId.slice(0, 8)}</span> },
-    { header: 'Balance', render: (a) => a.balance.toFixed(2) },
-    { header: 'Status', render: (a) => a.status },
+    { header: 'Id', render: (a) => <span className="font-mono text-xs text-ink-400">{a.accountId.slice(0, 8)}</span> },
+    { header: 'Balance', render: (a) => <span className="font-mono font-semibold">{a.balance.toFixed(2)}</span> },
+    {
+      header: 'Status',
+      render: (a) => <Badge variant={a.status === 'ACTIVE' ? 'success' : a.status === 'FROZEN' ? 'warning' : 'neutral'}>{a.status}</Badge>,
+    },
     { header: 'Actions', render: (a) => <AccountActions account={a} allAccounts={accounts ?? []} /> },
   ]
 
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Accounts</h1>
-        <p className="text-sm text-slate-500">Open accounts, deposit, withdraw, and convert between your own balances.</p>
+        <h1 className="text-2xl font-semibold text-ink-900">Accounts</h1>
+        <p className="text-sm text-ink-400">Open accounts, deposit, withdraw, and convert between your own balances.</p>
       </div>
 
       {user && <OpenAccountForm clientId={user.clientId} />}
@@ -393,13 +344,13 @@ export function AccountsPage() {
 
       {activeAccounts.length >= 2 && (
         <div>
-          <h2 className="mb-2 text-sm font-medium text-slate-700">Convert (sell balance)</h2>
+          <h2 className="mb-2 text-sm font-semibold text-ink-700">Convert (sell balance)</h2>
           <ConvertPanel accounts={activeAccounts} />
         </div>
       )}
 
       {selectedAccountId && (
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-ink-400">
           Came from the dashboard for account {selectedAccountId.slice(0, 8)} — deposit/withdraw it above.
         </p>
       )}

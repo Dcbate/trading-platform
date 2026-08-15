@@ -1,8 +1,8 @@
-// A generic list table, reused for accounts (AccountsPage) and loans (LoansPage). The backend
-// doesn't expose a per-account transaction-history endpoint (deposits/transfers/loan repayments
-// are Kafka-published for audit, not queryable as a list — see docs/ACCOUNTS.md §8), so this
-// deliberately isn't a fake "recent transactions" feed; it's whatever real, queryable rows the
-// page hands it.
+// A generic list table, reused for accounts (AccountsPage), loans (LoansPage), orders and
+// positions (TradingPage). The backend doesn't expose a per-account transaction-history endpoint
+// (deposits/transfers/loan repayments are Kafka-published for audit, not queryable as a list —
+// see docs/ACCOUNTS.md §8), so this deliberately isn't a fake "recent transactions" feed; it's
+// whatever real, queryable rows the page hands it.
 export interface Column<T> {
   header: string
   render: (row: T) => React.ReactNode
@@ -20,33 +20,39 @@ export function TransactionTable<T>({
   emptyMessage?: string
 }) {
   if (rows.length === 0) {
-    return <p className="py-8 text-center text-sm text-slate-400">{emptyMessage}</p>
+    return (
+      <div className="rounded-2xl border border-dashed border-ink-100 bg-white/60 py-10 text-center text-sm text-ink-400">
+        {emptyMessage}
+      </div>
+    )
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50">
-          <tr>
-            {columns.map((col) => (
-              <th key={col.header} className="px-4 py-2 text-left font-medium text-slate-500">
-                {col.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100 bg-white">
-          {rows.map((row) => (
-            <tr key={String(row[keyField])}>
+    <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm shadow-ink-900/[0.02]">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-ink-100">
               {columns.map((col) => (
-                <td key={col.header} className="px-4 py-2 text-slate-700">
-                  {col.render(row)}
-                </td>
+                <th key={col.header} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-ink-400">
+                  {col.header}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-ink-50">
+            {rows.map((row) => (
+              <tr key={String(row[keyField])} className="transition hover:bg-canvas">
+                {columns.map((col) => (
+                  <td key={col.header} className="px-5 py-3.5 text-ink-700">
+                    {col.render(row)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

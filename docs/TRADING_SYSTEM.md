@@ -93,7 +93,32 @@ the same reason I kept AI out of the payment fraud decision (see
 [PAYMENT_SYSTEM.md §5](PAYMENT_SYSTEM.md#5-fraud-scenarios)): I don't want a third-party API
 outage to be able to change whether an order executes.
 
-**Explicitly out of scope, same as I note in ACCOUNTS.md**: a filled or partially-filled order
-doesn't move `Account.balance` yet. `ExecutionServiceImpl` records the trade and flips order
-status, but it has no reference to `AccountService` — wiring FX fills into real settlement is a
-follow-on I ran out of runway for, not something I'm hiding.
+**Explicitly out of scope, same as I note in ACCOUNTS.md**: an FX pair fill still doesn't move
+`Account.balance` — a currency pair involves two currencies, and I never solved which side of the
+account holds which one. That's a genuinely separate problem from the one below, not something I
+papered over by adding stock settlement.
+
+## 5. Stock orders: the same engine, real settlement
+
+I reused this exact pipeline — `OrderController` → `RiskService` → `MatchingEngine` →
+`ExecutionService` — for buying and selling shares in well-known companies (`AAPL`, `MSFT`,
+`GOOGL`, `AMZN`, `NVDA`, `TSLA`, `META`), rather than building a second matching engine. The
+matching logic doesn't care whether `currencyPair` holds `"EUR/USD"` or `"AAPL"` — it was already
+symbol-agnostic. `Order.accountId` (nullable) is what turns settlement on: an FX order submitted
+without one behaves exactly as before; a stock order carries the `BROKERAGE` account funding it,
+and `ExecutionServiceImpl` settles the fill for real — a buy debits cash and increases a
+`Position`, a sell credits cash and decreases one, with `Position.avgCost` tracked as a standard
+weighted-average cost basis. Unlike the FX case above, this was tractable specifically because a
+stock trade is single-currency: no "which side holds which currency" problem to solve.
+
+`POST /v1/orders` also now accepts a `CLIENT` caller (previously `TRADER`/`ADMIN` dealer-desk
+roles only), with the same `CallerPrincipal.requireOwner` check every other client-facing endpoint
+uses — a client can only submit or view their own orders; staff still act across clients.
+
+**A gap I found and deliberately didn't wire up**: `OrderStreamHandler` (the `/v1/orders/stream`
+WebSocket) broadcasts every order update to *every* connected session with no per-client
+filtering — fine for the FX dealer desk it was originally built for (all `TRADER` staff seeing all
+activity is normal), but not safe to hand to retail clients without adding server-side scoping
+first, since client A would see client B's fills. The frontend's Trading page polls
+`GET /v1/orders?clientId=` instead. Filtering the WebSocket by client is a real follow-on, not
+done here.

@@ -24,7 +24,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({InvalidPaymentStateException.class, InsufficientFundsException.class, AccountNotActiveException.class,
             CurrencyMismatchException.class, RateUnavailableException.class, LoanNotActiveException.class,
-            EmailAlreadyRegisteredException.class, InvalidAccountClosureException.class})
+            EmailAlreadyRegisteredException.class, InvalidAccountClosureException.class, InsufficientPositionException.class})
     public ResponseEntity<ApiError> handleConflict(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, List.of(e.getMessage()), request);
     }

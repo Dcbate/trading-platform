@@ -1,15 +1,25 @@
+import { Wallet, PiggyBank, TrendingUp, LineChart } from 'lucide-react'
 import type { AccountResponse } from '../types/api'
+import { Badge } from './Badge'
 
 const typeLabel: Record<AccountResponse['accountType'], string> = {
   CHECKING: 'Checking',
   SAVINGS: 'Savings',
   FX_TRADING: 'FX Trading',
+  BROKERAGE: 'Brokerage',
 }
 
-const statusColor: Record<AccountResponse['status'], string> = {
-  ACTIVE: 'bg-green-100 text-green-800',
-  FROZEN: 'bg-amber-100 text-amber-800',
-  CLOSED: 'bg-slate-100 text-slate-600',
+const typeIcon: Record<AccountResponse['accountType'], typeof Wallet> = {
+  CHECKING: Wallet,
+  SAVINGS: PiggyBank,
+  FX_TRADING: TrendingUp,
+  BROKERAGE: LineChart,
+}
+
+const statusVariant: Record<AccountResponse['status'], 'success' | 'warning' | 'neutral'> = {
+  ACTIVE: 'success',
+  FROZEN: 'warning',
+  CLOSED: 'neutral',
 }
 
 function formatMoney(amount: number, currency: string) {
@@ -17,25 +27,29 @@ function formatMoney(amount: number, currency: string) {
 }
 
 export function AccountCard({ account, onClick }: { account: AccountResponse; onClick?: () => void }) {
+  const Icon = typeIcon[account.accountType]
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full flex-col gap-2 rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow"
+      className="flex w-full flex-col gap-4 rounded-2xl border border-ink-100 bg-white p-5 text-left shadow-sm shadow-ink-900/[0.02] transition hover:-translate-y-0.5 hover:shadow-md"
     >
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-slate-500">
-          {account.nickname ?? typeLabel[account.accountType]}
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
+          <Icon size={18} strokeWidth={2} />
         </span>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[account.status]}`}>
-          {account.status}
-        </span>
+        <Badge variant={statusVariant[account.status]}>{account.status}</Badge>
       </div>
-      <span className="text-2xl font-semibold text-slate-900">{formatMoney(account.balance, account.currency)}</span>
-      <span className="text-xs text-slate-400">
+      <div>
+        <p className="text-sm font-medium text-ink-400">{account.nickname ?? typeLabel[account.accountType]}</p>
+        <p className="font-mono text-3xl font-semibold tracking-tight text-ink-900">
+          {formatMoney(account.balance, account.currency)}
+        </p>
+      </div>
+      <p className="text-xs text-ink-400">
         {account.nickname && `${typeLabel[account.accountType]} · `}
         {account.currency} · {account.accountId.slice(0, 8)}
-      </span>
+      </p>
     </button>
   )
 }

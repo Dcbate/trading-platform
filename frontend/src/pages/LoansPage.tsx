@@ -6,6 +6,8 @@ import { useAccounts } from '../hooks/useAccounts'
 import { useLoans, useRepayLoan } from '../hooks/useLoans'
 import { LoanForm } from '../components/LoanForm'
 import { TransactionTable, type Column } from '../components/TransactionTable'
+import { Badge } from '../components/Badge'
+import { btnGhostSm, inputSm } from '../lib/styles'
 import type { LoanResponse } from '../types/api'
 
 function RepayCell({ loan }: { loan: LoanResponse }) {
@@ -13,11 +15,11 @@ function RepayCell({ loan }: { loan: LoanResponse }) {
   const repay = useRepayLoan()
 
   if (loan.status === 'PAID_OFF') {
-    return <span className="text-xs text-slate-400">Paid off</span>
+    return <span className="text-xs text-ink-400">Paid off</span>
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       <input
         type="number"
         min="0.01"
@@ -25,7 +27,7 @@ function RepayCell({ loan }: { loan: LoanResponse }) {
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
         placeholder="amount"
-        className="w-24 rounded-md border border-slate-300 px-2 py-1 text-xs"
+        className={`w-24 ${inputSm}`}
       />
       <button
         type="button"
@@ -42,7 +44,7 @@ function RepayCell({ loan }: { loan: LoanResponse }) {
             },
           )
         }
-        className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        className={btnGhostSm}
       >
         Repay
       </button>
@@ -58,19 +60,19 @@ export function LoansPage() {
 
   const columns: Column<LoanResponse>[] = [
     { header: 'Product', render: (l) => l.productType },
-    { header: 'Principal', render: (l) => l.principal.toFixed(2) },
-    { header: 'Outstanding', render: (l) => l.outstandingPrincipal.toFixed(2) },
-    { header: 'Accrued interest', render: (l) => l.accruedInterest.toFixed(2) },
+    { header: 'Principal', render: (l) => <span className="font-mono">${l.principal.toFixed(2)}</span> },
+    { header: 'Outstanding', render: (l) => <span className="font-mono">${l.outstandingPrincipal.toFixed(2)}</span> },
+    { header: 'Accrued interest', render: (l) => <span className="font-mono">${l.accruedInterest.toFixed(2)}</span> },
     { header: 'Rate', render: (l) => `${l.interestRateAnnualPercent}%` },
-    { header: 'Status', render: (l) => l.status },
+    { header: 'Status', render: (l) => <Badge variant={l.status === 'ACTIVE' ? 'primary' : 'success'}>{l.status}</Badge> },
     { header: 'Repay', render: (l) => <RepayCell loan={l} /> },
   ]
 
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Loans</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-2xl font-semibold text-ink-900">Loans</h1>
+        <p className="text-sm text-ink-400">
           Rates and terms come from a fixed product catalog — repayments pay down accrued interest first, then
           principal.
         </p>
@@ -79,7 +81,7 @@ export function LoansPage() {
       {activeAccounts.length > 0 ? (
         <LoanForm accounts={activeAccounts} />
       ) : (
-        <p className="text-sm text-slate-500">You need an active account before you can originate a loan.</p>
+        <p className="text-sm text-ink-400">You need an active account before you can originate a loan.</p>
       )}
 
       <TransactionTable

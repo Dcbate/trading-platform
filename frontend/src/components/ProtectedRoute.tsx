@@ -1,6 +1,6 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { Navbar } from './Navbar'
+import { Sidebar } from './Sidebar'
 
 // Gate is the cached authStore user, not a live check — it's just "did we log in this session,"
 // not "is the cookie still valid." The real enforcement is server-side: any request past this
@@ -16,10 +16,12 @@ export function ProtectedRoute() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Navbar />
-      <main className="mx-auto max-w-5xl px-4 py-6">
-        <Outlet />
+    <div className="flex min-h-screen bg-canvas">
+      <Sidebar />
+      <main className="min-w-0 flex-1 px-10 py-8">
+        <div className="mx-auto max-w-5xl">
+          <Outlet />
+        </div>
       </main>
     </div>
   )

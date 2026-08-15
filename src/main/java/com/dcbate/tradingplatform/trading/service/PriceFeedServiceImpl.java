@@ -21,21 +21,31 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 /**
- * Stands in for a real market data feed (none exists for Phase 1): generates a bounded random
- * walk per currencyPair, caches the latest price in Redis (TTL 1 minute), publishes to Kafka, and
- * flags moves beyond the configured threshold via {@link AnomalyDetector}.
+ * Stands in for a real market data feed (none exists): generates a bounded random walk per
+ * instrument — FX currency pairs and, identically, stock symbols, since both are just a string
+ * key here — caches the latest price in Redis (TTL 1 minute), publishes to Kafka, and flags moves
+ * beyond the configured threshold via {@link AnomalyDetector}.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PriceFeedServiceImpl implements PriceFeedService {
 
-    private static final Map<String, BigDecimal> SEED_PRICES = Map.of(
-            "EUR/USD", new BigDecimal("1.0800"),
-            "GBP/USD", new BigDecimal("1.2700"),
-            "USD/JPY", new BigDecimal("149.50"),
-            "USD/CHF", new BigDecimal("0.8800"),
-            "AUD/USD", new BigDecimal("0.6600"));
+    private static final Map<String, BigDecimal> SEED_PRICES = Map.ofEntries(
+            Map.entry("EUR/USD", new BigDecimal("1.0800")),
+            Map.entry("GBP/USD", new BigDecimal("1.2700")),
+            Map.entry("USD/JPY", new BigDecimal("149.50")),
+            Map.entry("USD/CHF", new BigDecimal("0.8800")),
+            Map.entry("AUD/USD", new BigDecimal("0.6600")),
+            // Stock seeds — same synthetic random-walk model as the FX pairs above, not a real
+            // quote. Round starting points for well-known large-cap tickers, nothing more.
+            Map.entry("AAPL", new BigDecimal("190.00")),
+            Map.entry("MSFT", new BigDecimal("420.00")),
+            Map.entry("GOOGL", new BigDecimal("165.00")),
+            Map.entry("AMZN", new BigDecimal("180.00")),
+            Map.entry("NVDA", new BigDecimal("875.00")),
+            Map.entry("TSLA", new BigDecimal("250.00")),
+            Map.entry("META", new BigDecimal("505.00")));
     private static final BigDecimal DEFAULT_SEED_PRICE = new BigDecimal("1.0000");
     private static final Duration CACHE_TTL = Duration.ofMinutes(1);
     private static final String CACHE_KEY_PREFIX = "price:";

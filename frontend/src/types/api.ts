@@ -8,11 +8,13 @@
 // for display purposes at demo scale, but a production frontend would want the backend emitting
 // BigDecimal as strings instead of trying to fix this on the client.
 
-export type AccountType = 'CHECKING' | 'SAVINGS' | 'FX_TRADING'
+export type AccountType = 'CHECKING' | 'SAVINGS' | 'FX_TRADING' | 'BROKERAGE'
 export type AccountStatus = 'ACTIVE' | 'FROZEN' | 'CLOSED'
 export type TransferStatus = 'COMPLETED' | 'FAILED'
 export type LoanStatus = 'ACTIVE' | 'PAID_OFF'
 export type LoanProductType = 'PERSONAL_SHORT' | 'PERSONAL_LONG' | 'AUTO' | 'STUDENT' | 'MORTGAGE'
+export type OrderSide = 'BUY' | 'SELL'
+export type OrderStatus = 'PENDING' | 'VALIDATED' | 'PARTIALLY_FILLED' | 'FILLED' | 'REJECTED'
 
 export interface AuthResponse {
   clientId: string
@@ -70,8 +72,31 @@ export interface LoanResponse {
 }
 
 export interface PriceResponse {
-  currencyPair: string
+  symbol: string
   price: number
+}
+
+export interface OrderResponse {
+  orderId: string
+  clientId: string
+  accountId: string | null
+  currencyPair: string
+  side: OrderSide
+  quantity: number
+  price: number
+  status: OrderStatus
+  createdAt: string
+  filledAt: string | null
+}
+
+export interface PositionResponse {
+  positionId: string
+  accountId: string
+  clientId: string
+  symbol: string
+  quantity: number
+  avgCost: number
+  updatedAt: string
 }
 
 export interface ApiError {

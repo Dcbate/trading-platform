@@ -19,6 +19,10 @@ import lombok.Setter;
  * A buy or sell order. {@code OrderService} is the only writer of the initial {@code PENDING}
  * row; {@code RiskService} writes {@code VALIDATED}/{@code REJECTED}; {@code ExecutionService}
  * writes {@code PARTIALLY_FILLED}/{@code FILLED} as fills come in from the Matching Engine.
+ *
+ * <p>{@code accountId} is optional — null for the FX desk's dealer-submitted orders (no
+ * settlement), set for client-submitted stock orders, which {@code ExecutionServiceImpl} settles
+ * against that account's cash balance and a {@code Position} row on every fill.
  */
 @Entity
 @Table(name = "orders")
@@ -34,6 +38,8 @@ public class Order {
 
     @Column(nullable = false)
     private String clientId;
+
+    private UUID accountId;
 
     @Column(nullable = false)
     private String currencyPair;

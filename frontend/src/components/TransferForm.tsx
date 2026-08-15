@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import toast from 'react-hot-toast'
+import { Send } from 'lucide-react'
 import { apiErrorMessage } from '../api/client'
 import { useCreateTransfer } from '../hooks/useTransfers'
 import { accountLabel, type AccountResponse, type TransferResponse } from '../types/api'
+import { btnPrimary, card, input, label } from '../lib/styles'
 
 export function TransferForm({
   accounts,
@@ -22,7 +24,7 @@ export function TransferForm({
       { fromAccountId, toAccountId, amount: Number(amount) },
       {
         onSuccess: (transfer) => {
-          toast.success(`Sent ${transfer.amount} — status ${transfer.status}`)
+          toast.success(`Sent $${transfer.amount} — ${transfer.status}`)
           setToAccountId('')
           setAmount('')
           onTransferred?.(transfer)
@@ -33,18 +35,12 @@ export function TransferForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700" htmlFor="fromAccountId">
+    <form onSubmit={handleSubmit} className={`${card} flex flex-col gap-4`}>
+      <div className="flex flex-col gap-1.5">
+        <label className={label} htmlFor="fromAccountId">
           From account
         </label>
-        <select
-          id="fromAccountId"
-          value={fromAccountId}
-          onChange={(e) => setFromAccountId(e.target.value)}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-          required
-        >
+        <select id="fromAccountId" value={fromAccountId} onChange={(e) => setFromAccountId(e.target.value)} className={input} required>
           {accounts.map((account) => (
             <option key={account.accountId} value={account.accountId}>
               {accountLabel(account)} · {account.balance}
@@ -53,8 +49,8 @@ export function TransferForm({
         </select>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700" htmlFor="toAccountId">
+      <div className="flex flex-col gap-1.5">
+        <label className={label} htmlFor="toAccountId">
           Recipient account id
         </label>
         <input
@@ -62,13 +58,13 @@ export function TransferForm({
           value={toAccountId}
           onChange={(e) => setToAccountId(e.target.value)}
           placeholder="the other client's account UUID"
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+          className={input}
           required
         />
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700" htmlFor="amount">
+      <div className="flex flex-col gap-1.5">
+        <label className={label} htmlFor="amount">
           Amount
         </label>
         <input
@@ -78,16 +74,13 @@ export function TransferForm({
           step="0.01"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+          className={input}
           required
         />
       </div>
 
-      <button
-        type="submit"
-        disabled={createTransfer.isPending || !fromAccountId}
-        className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
-      >
+      <button type="submit" disabled={createTransfer.isPending || !fromAccountId} className={btnPrimary}>
+        <Send size={15} strokeWidth={2} />
         {createTransfer.isPending ? 'Sending…' : 'Send transfer'}
       </button>
     </form>

@@ -14,6 +14,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     List<Order> findByClientIdAndStatusIn(String clientId, List<OrderStatus> statuses);
 
+    List<Order> findByClientIdOrderByCreatedAtDesc(String clientId);
+
     @Query(
             "SELECT COALESCE(SUM(o.quantity * o.price), 0) FROM Order o "
                     + "WHERE o.clientId = :clientId AND o.status IN :statuses")

@@ -50,7 +50,7 @@ class PriceFeedServiceImplTest {
                 "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
                 "account-activity", "transfers", "loans");
         TradingProperties tradingProperties =
-                new TradingProperties(List.of("EUR/USD"), new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
+                new TradingProperties(List.of("EUR/USD"), List.of("AAPL"), new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
         priceFeedService = new PriceFeedServiceImpl(
                 redisTemplate, kafkaEventPublisher, topics, tradingProperties, anomalyDetector, new SimpleMeterRegistry());
     }

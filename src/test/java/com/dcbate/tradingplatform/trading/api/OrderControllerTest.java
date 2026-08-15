@@ -1,6 +1,7 @@
 package com.dcbate.tradingplatform.trading.api;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -25,6 +26,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import tools.jackson.databind.json.JsonMapper;
@@ -47,19 +50,24 @@ class OrderControllerTest {
                 .build();
     }
 
+    private Authentication clientAuth(String clientId) {
+        return new TestingAuthenticationToken(clientId, null, "ROLE_CLIENT");
+    }
+
     private OrderRequest validRequest() {
-        return new OrderRequest("client-1", "EUR/USD", OrderSide.BUY, new BigDecimal("10"), new BigDecimal("150.00"));
+        return new OrderRequest("client-1", "EUR/USD", OrderSide.BUY, new BigDecimal("10"), new BigDecimal("150.00"), null);
     }
 
     @Test
     void submitOrderReturnsCreatedWithLocationHeader() throws Exception {
         UUID orderId = UUID.randomUUID();
         OrderResponse response = new OrderResponse(
-                orderId, "client-1", "EUR/USD", OrderSide.BUY, new BigDecimal("10"), new BigDecimal("150.00"),
+                orderId, "client-1", null, "EUR/USD", OrderSide.BUY, new BigDecimal("10"), new BigDecimal("150.00"),
                 OrderStatus.PENDING, Instant.now(), null);
-        when(orderService.submitOrder(any())).thenReturn(response);
+        when(orderService.submitOrder(any(), any())).thenReturn(response);
 
         mockMvc.perform(post("/v1/orders")
+                        .principal(clientAuth("client-1"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
                 .andExpect(status().isCreated())
@@ -71,15 +79,25 @@ class OrderControllerTest {
     void submitOrderRejectsInvalidPayload() throws Exception {
         String invalidPayload = "{\"clientId\":\"\",\"currencyPair\":\"EUR/USD\",\"side\":\"BUY\",\"quantity\":-1,\"price\":150.00}";
 
-        mockMvc.perform(post("/v1/orders").contentType(MediaType.APPLICATION_JSON).content(invalidPayload))
+        mockMvc.perform(post("/v1/orders").principal(clientAuth("client-1"))
+                        .contentType(MediaType.APPLICATION_JSON).content(invalidPayload))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void getOrderReturnsNotFoundWhenMissing() throws Exception {
         UUID orderId = UUID.randomUUID();
-        when(orderService.getOrder(orderId)).thenThrow(new OrderNotFoundException(orderId));
+        when(orderService.getOrder(eq(orderId), any())).thenThrow(new OrderNotFoundException(orderId));
 
-        mockMvc.perform(get("/v1/orders/{id}", orderId)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/v1/orders/{id}", orderId).principal(clientAuth("client-1")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listOrdersReturnsOk() throws Exception {
+        when(orderService.listOrdersForClient(eq("client-1"), any())).thenReturn(java.util.List.of());
+
+        mockMvc.perform(get("/v1/orders").param("clientId", "client-1").principal(clientAuth("client-1")))
+                .andExpect(status().isOk());
     }
 }
