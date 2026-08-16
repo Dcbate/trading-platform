@@ -99,19 +99,29 @@ class PaymentControllerTest {
     }
 
     @Test
-    void approvePaymentReturnsNoContent() throws Exception {
+    void approvePaymentReturnsTheUpdatedPayment() throws Exception {
         UUID paymentId = UUID.randomUUID();
+        PaymentResponse response = new PaymentResponse(
+                paymentId, "client-1", UUID.randomUUID(), new BigDecimal("100.00"), "US", PaymentStatus.UNDER_REVIEW, Instant.now());
+        when(paymentService.getPayment(eq(paymentId), any())).thenReturn(response);
 
-        mockMvc.perform(post("/v1/payments/{id}/approve", paymentId)).andExpect(status().isNoContent());
+        mockMvc.perform(post("/v1/payments/{id}/approve", paymentId).principal(clientAuth("compliance-1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paymentId").value(paymentId.toString()));
 
         verify(fraudDetectionService).approve(paymentId);
     }
 
     @Test
-    void rejectPaymentReturnsNoContent() throws Exception {
+    void rejectPaymentReturnsTheUpdatedPayment() throws Exception {
         UUID paymentId = UUID.randomUUID();
+        PaymentResponse response = new PaymentResponse(
+                paymentId, "client-1", UUID.randomUUID(), new BigDecimal("100.00"), "US", PaymentStatus.BLOCKED, Instant.now());
+        when(paymentService.getPayment(eq(paymentId), any())).thenReturn(response);
 
-        mockMvc.perform(post("/v1/payments/{id}/reject", paymentId)).andExpect(status().isNoContent());
+        mockMvc.perform(post("/v1/payments/{id}/reject", paymentId).principal(clientAuth("compliance-1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("BLOCKED"));
 
         verify(fraudDetectionService).reject(paymentId);
     }

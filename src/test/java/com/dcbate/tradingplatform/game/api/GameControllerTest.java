@@ -20,6 +20,7 @@ import com.dcbate.tradingplatform.game.api.dto.GameStatsResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameTradeRequest;
 import com.dcbate.tradingplatform.game.service.GameMarketService;
 import com.dcbate.tradingplatform.game.service.GameService;
+import com.dcbate.tradingplatform.game.service.GameSessionStartResult;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -76,11 +77,27 @@ class GameControllerTest {
     }
 
     @Test
-    void startSessionReturnsOk() throws Exception {
+    void startSessionReturnsCreatedForANewSession() throws Exception {
         UUID sessionId = UUID.randomUUID();
         GameStartRequest request = new GameStartRequest("client-1", GameDifficulty.APPRENTICE);
         when(gameService.startSession(eq("client-1"), eq(GameDifficulty.APPRENTICE), any()))
-                .thenReturn(session(sessionId, GameStatus.IN_PROGRESS, new BigDecimal("1000")));
+                .thenReturn(new GameSessionStartResult(session(sessionId, GameStatus.IN_PROGRESS, new BigDecimal("1000")), true));
+
+        mockMvc.perform(post("/v1/game/sessions")
+                        .principal(clientAuth("client-1"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.cash").value(1000));
+    }
+
+    @Test
+    void startSessionReturnsOkWhenResumingAnExistingSession() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        GameStartRequest request = new GameStartRequest("client-1", GameDifficulty.APPRENTICE);
+        when(gameService.startSession(eq("client-1"), eq(GameDifficulty.APPRENTICE), any()))
+                .thenReturn(new GameSessionStartResult(session(sessionId, GameStatus.IN_PROGRESS, new BigDecimal("1000")), false));
 
         mockMvc.perform(post("/v1/game/sessions")
                         .principal(clientAuth("client-1"))

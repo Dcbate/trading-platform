@@ -152,8 +152,8 @@ toggle for local testing. This is the one I've verified against a real cluster.
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/auth/signup`, `/auth/login` | creates/authenticates a user, sets HTTP-only access/refresh cookies |
-| POST | `/auth/refresh`, `/auth/logout` | rotates the refresh token; logout just clears cookies |
+| POST | `/v1/auth/signup`, `/v1/auth/login` | creates/authenticates a user, sets HTTP-only access/refresh cookies |
+| POST | `/v1/auth/refresh`, `/v1/auth/logout` | rotates the refresh token; logout just clears cookies |
 | POST/GET | `/v1/accounts`, `/v1/accounts/{id}` | open (optional `nickname`), get, list (`?clientId=`) |
 | GET | `/v1/accounts/currencies` | public — the currency dropdown in `playground.html` is sourced from here |
 | POST | `/v1/accounts/{id}/deposit`, `/withdraw`, `/convert` | |

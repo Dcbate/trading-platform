@@ -12,7 +12,7 @@ export function useSignup() {
   const setUser = useAuthStore((s) => s.setUser)
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: Credentials) => apiClient.post<AuthResponse>('/auth/signup', body).then((r) => r.data),
+    mutationFn: (body: Credentials) => apiClient.post<AuthResponse>('/v1/auth/signup', body).then((r) => r.data),
     onSuccess: (data) => {
       setUser(data)
       queryClient.clear()
@@ -24,7 +24,7 @@ export function useLogin() {
   const setUser = useAuthStore((s) => s.setUser)
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: Credentials) => apiClient.post<AuthResponse>('/auth/login', body).then((r) => r.data),
+    mutationFn: (body: Credentials) => apiClient.post<AuthResponse>('/v1/auth/login', body).then((r) => r.data),
     onSuccess: (data) => {
       setUser(data)
       queryClient.clear()
@@ -36,7 +36,7 @@ export function useLogout() {
   const clear = useAuthStore((s) => s.clear)
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => apiClient.post('/auth/logout'),
+    mutationFn: () => apiClient.post('/v1/auth/logout'),
     onSettled: () => {
       clear()
       queryClient.clear()

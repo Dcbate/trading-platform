@@ -75,7 +75,7 @@ public class GameServiceImpl implements GameService {
 
     @Override
     @Transactional
-    public GameSessionResponse startSession(String clientId, GameDifficulty difficulty, CallerPrincipal caller) {
+    public GameSessionStartResult startSession(String clientId, GameDifficulty difficulty, CallerPrincipal caller) {
         caller.requireOwner(clientId);
 
         var existing = sessionRepository.findFirstByClientIdAndStatusOrderByStartedAtDesc(clientId, GameStatus.IN_PROGRESS);
@@ -83,7 +83,7 @@ public class GameServiceImpl implements GameService {
             GameSession session = existing.get();
             evaluate(session);
             if (session.getStatus() == GameStatus.IN_PROGRESS) {
-                return toResponse(session);
+                return new GameSessionStartResult(toResponse(session), false);
             }
         }
 
@@ -99,7 +99,7 @@ public class GameServiceImpl implements GameService {
                 .build();
         sessionRepository.save(session);
         log.info("Game session started: sessionId={}, clientId={}, difficulty={}", session.getSessionId(), clientId, difficulty);
-        return toResponse(session);
+        return new GameSessionStartResult(toResponse(session), true);
     }
 
     @Override

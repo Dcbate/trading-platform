@@ -91,8 +91,10 @@ class GameServiceImplTest {
         when(positionRepository.findBySessionId(any())).thenReturn(List.of());
         when(loanRepository.findBySessionId(any())).thenReturn(List.of());
 
-        GameSessionResponse response = gameService.startSession("client-1", GameDifficulty.APPRENTICE, owner);
+        GameSessionStartResult result = gameService.startSession("client-1", GameDifficulty.APPRENTICE, owner);
+        GameSessionResponse response = result.session();
 
+        assertThat(result.created()).isTrue();
         assertThat(response.status()).isEqualTo(GameStatus.IN_PROGRESS);
         assertThat(response.cash()).isEqualByComparingTo(GameDifficulty.APPRENTICE.getStartingCash());
         assertThat(response.goalAmount()).isEqualByComparingTo(GameDifficulty.APPRENTICE.getGoalAmount());
@@ -107,8 +109,10 @@ class GameServiceImplTest {
         when(positionRepository.findBySessionId(existing.getSessionId())).thenReturn(List.of());
         when(loanRepository.findBySessionId(existing.getSessionId())).thenReturn(List.of());
 
-        GameSessionResponse response = gameService.startSession("client-1", GameDifficulty.MAVERICK, owner);
+        GameSessionStartResult result = gameService.startSession("client-1", GameDifficulty.MAVERICK, owner);
+        GameSessionResponse response = result.session();
 
+        assertThat(result.created()).isFalse();
         assertThat(response.sessionId()).isEqualTo(existing.getSessionId());
         assertThat(response.difficulty()).isEqualTo(GameDifficulty.TRADER);
     }

@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
  * token handshake.
  */
 @RestController
-@RequestMapping("/auth")
+@RequestMapping("/v1/auth")
 @RequiredArgsConstructor
 @Tag(name = "Auth", description = "Signup, login, and token refresh")
 public class AuthController {

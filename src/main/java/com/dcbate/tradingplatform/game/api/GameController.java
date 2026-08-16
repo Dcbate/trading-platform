@@ -13,6 +13,7 @@ import com.dcbate.tradingplatform.game.api.dto.GameTradeRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameTradeResponse;
 import com.dcbate.tradingplatform.game.service.GameMarketService;
 import com.dcbate.tradingplatform.game.service.GameService;
+import com.dcbate.tradingplatform.game.service.GameSessionStartResult;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -76,7 +78,9 @@ public class GameController {
     @PostMapping("/sessions")
     @Operation(summary = "Start a new Game Mode session, or resume the caller's existing in-progress one")
     public ResponseEntity<GameSessionResponse> startSession(@Valid @RequestBody GameStartRequest request, Authentication authentication) {
-        return ResponseEntity.ok(gameService.startSession(request.clientId(), request.difficulty(), CallerPrincipal.from(authentication)));
+        GameSessionStartResult result = gameService.startSession(request.clientId(), request.difficulty(), CallerPrincipal.from(authentication));
+        HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
+        return ResponseEntity.status(status).body(result.session());
     }
 
     @GetMapping("/sessions/{sessionId}")
@@ -89,7 +93,8 @@ public class GameController {
     @Operation(summary = "Take a loan within a session — interest accrues per minute held until repaid or the game ends")
     public ResponseEntity<GameSessionResponse> takeLoan(
             @PathVariable UUID sessionId, @Valid @RequestBody GameLoanRequest request, Authentication authentication) {
-        return ResponseEntity.ok(gameService.takeLoan(sessionId, request, CallerPrincipal.from(authentication)));
+        GameSessionResponse response = gameService.takeLoan(sessionId, request, CallerPrincipal.from(authentication));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/sessions/{sessionId}/loans/{loanId}/repay")
@@ -103,7 +108,8 @@ public class GameController {
     @Operation(summary = "Buy or sell at the current simulated market price — fills instantly, no order book")
     public ResponseEntity<GameSessionResponse> placeTrade(
             @PathVariable UUID sessionId, @Valid @RequestBody GameTradeRequest request, Authentication authentication) {
-        return ResponseEntity.ok(gameService.placeTrade(sessionId, request, CallerPrincipal.from(authentication)));
+        GameSessionResponse response = gameService.placeTrade(sessionId, request, CallerPrincipal.from(authentication));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/sessions/{sessionId}/trades")

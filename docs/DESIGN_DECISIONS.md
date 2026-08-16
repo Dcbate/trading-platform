@@ -89,13 +89,13 @@ anomaly-detection consumers are unaffected.
 `security/JwtIssuer.java`, `config/SecurityConfig.java`.
 
 This used to be a gap — no signup/login endpoint existed, and the only place a JWT was ever
-constructed was test code hand-signing one. It isn't anymore: `POST /auth/signup` creates a real
+constructed was test code hand-signing one. It isn't anymore: `POST /v1/auth/signup` creates a real
 `User` row (bcrypt-hashed password via `PasswordEncoder`), auto-opens a `CHECKING` account through
 the same `AccountService.openAccount` every other caller goes through, and `AuthServiceImpl` mints a
 real access token (15 min) and refresh token (7 days) via `JwtIssuer` — the same HS256 signing
 `SecurityConfig`'s `NimbusJwtDecoder` validates, so a token minted at signup passes the existing
-resource-server filter chain unchanged. `POST /auth/login` does the same after verifying the
-password hash. `POST /auth/refresh` rotates the refresh token: the redeemed row is marked revoked in
+resource-server filter chain unchanged. `POST /v1/auth/login` does the same after verifying the
+password hash. `POST /v1/auth/refresh` rotates the refresh token: the redeemed row is marked revoked in
 the `refresh_tokens` table before a new pair is issued, so replaying an old refresh token fails
 outright rather than silently succeeding — that's the "rotation" part, not just "long-lived token."
 Tokens are set as HTTP-only, `SameSite=Strict` cookies (`AuthController`), never returned in a JSON

@@ -127,7 +127,7 @@ and I'd rather tell you exactly which than have you find out the hard way:
 | Email / Slack notifications | **Simulated** — logged, not sent to a real provider |
 | The "other bank" a payment clears against | **Simulated** — a deterministic stand-in (fails above $500k, on purpose, so both outcomes are testable) |
 | FX market prices | **Simulated** — a randomized walk, not a real market feed |
-| Signup / login | **Real** — `POST /auth/signup`/`/auth/login` create a real user, bcrypt-hash the password, and issue real JWTs as HTTP-only cookies. What's not real: it's a hand-rolled issuer, not a managed identity provider (Auth0/Cognito/Keycloak) — no MFA, password reset, or email verification. |
+| Signup / login | **Real** — `POST /v1/auth/signup`/`/v1/auth/login` create a real user, bcrypt-hash the password, and issue real JWTs as HTTP-only cookies. What's not real: it's a hand-rolled issuer, not a managed identity provider (Auth0/Cognito/Keycloak) — no MFA, password reset, or email verification. |
 
 I picked these specifically because none of them change the interesting parts of the system —
 there's no real bank clearing house I can integrate against in a demo, and email delivery is a side
@@ -376,7 +376,7 @@ Swagger UI: `/v1/swagger-ui/index.html`. OpenAPI JSON: `/v1/api-docs`.
 - The `dev` profile additionally grants every role to the anonymous principal and permits all HTTP
   requests, so `@PreAuthorize` still runs the same code path as production — it just doesn't
   require a token locally. **Never run `dev` outside local development.**
-- Signup/login (`POST /auth/signup`, `/auth/login`) mint real JWTs — HTTP-only, `SameSite=Strict`
+- Signup/login (`POST /v1/auth/signup`, `/v1/auth/login`) mint real JWTs — HTTP-only, `SameSite=Strict`
   cookies, never `localStorage` — with bcrypt-hashed passwords and one-time-use refresh-token
   rotation; see [What's real and what's simulated](#whats-real-and-what-simulated) for what's not
   built yet (a real OAuth2/OIDC IdP).

@@ -13,7 +13,7 @@ export const apiClient = axios.create({
 
 let refreshPromise: Promise<void> | null = null
 
-// One automatic retry on a 401: try /auth/refresh once, and only replay the original request if
+// One automatic retry on a 401: try /v1/auth/refresh once, and only replay the original request if
 // that succeeds. If refresh also 401s, the session is genuinely over — log out instead of looping.
 apiClient.interceptors.response.use(
   (response) => response,
@@ -22,14 +22,14 @@ apiClient.interceptors.response.use(
     if (error.response?.status !== 401 || !original || (original as { _retried?: boolean })._retried) {
       throw error
     }
-    if (original.url?.includes('/auth/')) {
+    if (original.url?.includes('/v1/auth/')) {
       useAuthStore.getState().clear()
       throw error
     }
 
     ;(original as { _retried?: boolean })._retried = true
     refreshPromise ??= apiClient
-      .post('/auth/refresh')
+      .post('/v1/auth/refresh')
       .then(() => undefined)
       .catch((refreshError) => {
         useAuthStore.getState().clear()

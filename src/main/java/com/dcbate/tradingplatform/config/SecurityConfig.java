@@ -69,7 +69,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/prometheus", "/v1/swagger-ui/**", "/v1/api-docs/**",
                                 "/playground.html", "/v1/loans/products", "/v1/accounts/currencies", "/v1/fx/prices",
-                                "/v1/stocks/prices", "/auth/signup", "/auth/login", "/auth/refresh", "/auth/logout",
+                                "/v1/stocks/prices", "/v1/auth/signup", "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout",
                                 // Game Mode is playable without an account — its own isolated economy with no real
                                 // money at stake, so there's no ownership worth gating behind a login (see
                                 // docs/GAME_MODE.md §6). A logged-in caller's JWT still authenticates normally here;

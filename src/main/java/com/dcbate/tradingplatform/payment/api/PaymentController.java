@@ -51,16 +51,16 @@ public class PaymentController {
     @PostMapping("/{paymentId}/approve")
     @PreAuthorize("hasRole('COMPLIANCE_OFFICER')")
     @Operation(summary = "Approve a payment held UNDER_REVIEW, releasing it into settlement")
-    public ResponseEntity<Void> approvePayment(@PathVariable UUID paymentId) {
+    public ResponseEntity<PaymentResponse> approvePayment(@PathVariable UUID paymentId, Authentication authentication) {
         fraudDetectionService.approve(paymentId);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(paymentService.getPayment(paymentId, CallerPrincipal.from(authentication)));
     }
 
     @PostMapping("/{paymentId}/reject")
     @PreAuthorize("hasRole('COMPLIANCE_OFFICER')")
     @Operation(summary = "Reject a payment held UNDER_REVIEW, blocking it terminally")
-    public ResponseEntity<Void> rejectPayment(@PathVariable UUID paymentId) {
+    public ResponseEntity<PaymentResponse> rejectPayment(@PathVariable UUID paymentId, Authentication authentication) {
         fraudDetectionService.reject(paymentId);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(paymentService.getPayment(paymentId, CallerPrincipal.from(authentication)));
     }
 }
