@@ -46,8 +46,10 @@ failing outright. Second, it genuinely reflects how a real bank's systems are bu
 don't have one giant program doing everything, they have many independent systems reacting to
 events, exactly like this.
 
-There's also a safety net: if Kafka itself is briefly unavailable, messages are held in memory and
-retried automatically rather than being silently lost.
+There's also a safety net: if Kafka itself is briefly unavailable, messages are written to a small
+local backup file and retried automatically rather than being silently lost — and that backup
+survives even if the app itself has to restart while Kafka's still down, which wasn't always true
+(I found and fixed that gap — see the developer section below).
 
 ## Redis — a fast scratchpad, not the permanent record
 
@@ -137,7 +139,7 @@ broadcast/audit-only topics for the newer banking features that don't currently 
 consumer. An earlier `settlements` topic that had neither a producer nor a consumer was removed
 during a later cleanup pass rather than left as an unexplained provisioned-but-unused topic.
 
-Two real production-grade bugs were found and fixed in this subsystem, both documented with full
+Several real production-grade bugs were found and fixed in this subsystem, all documented with full
 root-cause writeups in [KAFKA_SETUP.md](KAFKA_SETUP.md):
 
 1. Spring Boot 4 moved `KafkaAdmin` autoconfiguration into a new `spring-boot-kafka` module; without
@@ -147,11 +149,23 @@ root-cause writeups in [KAFKA_SETUP.md](KAFKA_SETUP.md):
    metadata wasn't cached yet — caught by noticing a suspiciously long Jaeger span, fixed by
    capping `max.block.ms` at 3s and routing metadata-wait timeouts into the existing fallback-retry
    queue.
+3. Two independent, eager Kafka calls at app-startup time — `KafkaConsumerLagMetrics`'s constructor
+   creating an `AdminClient`, and Spring Kafka's `@KafkaListener` containers auto-starting during
+   context refresh — each meant a Kafka outage crashed the *whole app's* boot, not just degraded a
+   feature. Fixed with a lazy-connect pattern: the admin client builds on first scheduled use, and
+   listener containers now start individually once Kafka's reachable
+   (`KafkaListenerStartupRunner`), retried per-container every 5 seconds.
+4. `KafkaEventPublisher`'s own fallback-queue catch clause only caught Spring's
+   `org.springframework.kafka.KafkaException` wrapper, not the raw
+   `org.apache.kafka.common.KafkaException` a failed producer construction actually throws — so the
+   exact failure the fallback queue exists to catch could escape uncaught to the caller as a 500.
 
-`KafkaEventPublisher` also has a single-instance, in-memory fallback queue
-(`fallback-queue.capacity`/`drain-interval-ms` in `application.yml`) that absorbs publishes during
-a broker outage and drains them once Kafka recovers — this is what "resilience" means concretely
-in this codebase, not just a claim.
+`KafkaEventPublisher`'s fallback queue (`kafka.fallback-queue.*` in `application.yml`) is now backed
+by a Chronicle Queue file rather than an in-memory buffer, so a queued publish survives the app
+itself restarting mid-outage, not just a transient broker blip — verified live by killing Kafka,
+queuing an event, restarting the app, bringing Kafka back, and watching the pre-restart backlog
+drain. Still single-instance: a multi-instance deployment would need this backed by something
+shared instead. This is what "resilience" means concretely in this codebase, not just a claim.
 
 ## Redis 8
 

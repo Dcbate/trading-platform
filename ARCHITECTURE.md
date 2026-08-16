@@ -229,6 +229,71 @@ propagate uncaught from `NotificationServiceImpl.deliver()` specifically so this
 act on a real failure once real providers are wired in; the unit tests prove that propagation, not
 the timing.
 
+## 5a. Kafka publisher & consumer resilience
+
+The retry+DLQ pattern above handles one failure mode: a *consumer* rejecting a message it received.
+This section is about the opposite direction — what happens when Kafka itself, the broker, isn't
+there at all — and it's the one place in this codebase where testing the resilience claim by
+actually breaking the dependency (not just reading the code or mocking it in a unit test) turned up
+real bugs, three of them, in a single pass.
+
+**The publisher side.** `KafkaEventPublisher` catches both a failed async send and the synchronous
+case (a producer that can't even resolve `bootstrap.servers`), and queues the event for retry every
+5 seconds. That queue used to be a plain in-memory `LinkedBlockingQueue` — fine for a broker blip,
+useless if the app itself restarts mid-outage, since the queue dies with the JVM. I backed it with a
+[Chronicle Queue](https://github.com/OpenHFT/Chronicle-Queue) file instead — the same library
+already used for the trade journal (§4, pattern 6), reused here for a different property: durability
+across a restart, not GC-avoidance. A *named tailer* persists its own read position to disk
+alongside the data, so a restart resumes draining exactly where it left off. I proved this live, not
+just in a unit test: killed Kafka, queued a deposit through the real API, restarted the app
+container while Kafka was still down, brought Kafka back, and watched the pre-restart backlog get
+found and drained automatically.
+
+**The consumer side — a bug I only found by testing the fix above properly.** With the publisher
+made durable, I tried to prove the whole story by taking Kafka down and restarting the app against
+it — and the app failed to boot entirely, for two independent reasons. First,
+`KafkaConsumerLagMetrics`'s constructor called `AdminClient.create()` directly, which resolves the
+broker address eagerly and throws if it can't — and since bean construction happens during
+`ApplicationContext.refresh()`, that took the whole context down with it, not just this one metrics
+gauge. Second, and this one surprised me: Spring Kafka's `@KafkaListener` containers default to
+starting synchronously as part of that same context-refresh lifecycle, so the identical outage
+crashed startup a *second*, independent way even after fixing the first cause. I fixed both with the
+lazy-connect pattern already established for the MCP client
+([`ai/mcp/McpToolClient`](../src/main/java/com/dcbate/tradingplatform/ai/mcp/McpToolClient.java),
+see [docs/INFRASTRUCTURE_EXPLAINED.md](docs/INFRASTRUCTURE_EXPLAINED.md#ai-integrations--now-via-a-real-mcp-server-not-in-process)) —
+never touch a downstream dependency in a constructor. For the listener containers specifically: both
+`ConcurrentKafkaListenerContainerFactory` beans now set `autoStartup=false`, and a new
+`KafkaListenerStartupRunner` scheduled task starts each `MessageListenerContainer` individually once
+Kafka's reachable, retried every 5 seconds *per container* rather than as one all-or-nothing group.
+I deliberately check and start each container directly rather than calling
+`KafkaListenerEndpointRegistry.start()` — the registry's own `isRunning()` reports `true` as soon as
+its harmless, skipped-because-`autoStartup=false` startup pass completes during context refresh,
+regardless of whether any container actually connected, so a registry-level check would have looked
+successful on the very first tick and never retried again. I only caught that by testing it.
+
+**A third bug, inside the fix I was testing.** `KafkaEventPublisher.send()`'s catch clause caught
+`org.springframework.kafka.KafkaException` (Spring's wrapper) — but a producer that fails to
+*construct* at all throws the raw `org.apache.kafka.common.KafkaException` instead, a different
+class with the same simple name and no subtype relationship. That specific failure mode — the exact
+one the fallback queue exists to catch — escaped uncaught straight past it to the caller as a 500. I
+only found it by deliberately taking Kafka down and hitting the API and watching a 500 come back
+where I expected a 200; nothing about reading the code would have surfaced it, since both exception
+types look correct to catch at a glance.
+
+**Proof it all actually works together, not just individually:** with all three fixes in place, I
+deployed a fresh app container against a genuinely dead Kafka and confirmed it reaches `healthy`
+anyway (previously: crash loop). Bringing Kafka back up, I checked consumer group membership
+directly on the broker rather than trusting a log line — all twelve expected groups (`risk-service`,
+`matching-engine`, `execution-service`, `fraud-detection-service`, `settlement-service`,
+`notification-service` and its five retry/DLQ variants) showed up with real partition assignments,
+no app restart needed. Full writeup, including the exact commands I used to verify each claim, in
+[docs/KAFKA_SETUP.md](docs/KAFKA_SETUP.md).
+
+**What's still a real limitation:** the fallback queue is durable but still single-instance — a
+multi-instance deployment would need it backed by something shared (Redis, a distributed queue)
+instead, since each instance only ever drains its own local queue file. I'm stating that plainly
+rather than letting "durable" imply more than it does.
+
 ## 6. Monitoring & observability
 
 Structured logging (`@Slf4j` everywhere), Spring Boot Actuator + Micrometer/Prometheus
@@ -311,7 +376,10 @@ none of these are obscure edge cases, they're the kind of thing anyone doing thi
   to Kafka's default 60-second `max.block.ms` if a topic's metadata wasn't cached yet — which is
   exactly what happens right after topics are freshly created. I capped it at 3 seconds and routed
   the failure into the existing fallback-retry queue. That's a latent production bug that predates
-  the migration entirely; I just happened to trip over it while debugging something else.
+  the migration entirely; I just happened to trip over it while debugging something else. (This is
+  the first of several Kafka resilience bugs I found the same way — by actually breaking the
+  dependency rather than trusting the code review. The full set, including two that could crash the
+  whole app's startup, is in §5a.)
 
 Every one of these I found the same way: something that used to work silently stopped working, with
 no error pointing at the real cause, and I had to `javap`/`unzip -l` my way through the actual jars
@@ -322,6 +390,12 @@ upgraded to Boot 4" — it wasn't a version bump, it was several hours of archae
 
 - Distribute `OrderVelocityTracker`/`PaymentVelocityTracker` via Redis so velocity limits hold
   under multiple service instances (today correct only for a single instance each).
+- Back the Kafka fallback queue (§5a) with something shared (Redis, a distributed queue) instead of
+  a local Chronicle Queue file, for the same reason — durable now, but still single-instance.
+- API-wide rate limiting (Bucket4j against Redis) — there's currently no protection against a single
+  client exhausting the API, beyond the trading/payment domains' own velocity checks.
+- Resilience4j's `@CircuitBreaker`/`@TimeLimiter` around the MCP client, replacing the hand-rolled
+  try/catch-and-fallback in `McpToolClient` with the same-shaped but industry-named pattern.
 - Real SendGrid/Slack/bank-gateway integrations, replacing the logging/simulated stand-ins.
 - Wire FX order execution (the matching engine) into real `Account.balance` movement — today only
   payments, transfers, deposits/withdrawals, and conversion touch it (§3a).

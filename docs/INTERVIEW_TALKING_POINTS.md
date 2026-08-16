@@ -54,15 +54,59 @@ just assert this works — I proved it with `AccountSecurityIntegrationTest` aga
 (non-`dev`) JWT filter chain: two hand-signed tokens, and client A genuinely gets a 403 reading
 client B's account.
 
+### "What security issue did you find and fix in your own code?"
+
+Two, both in the auth flow, both the kind of thing that's easy to miss because the happy path still
+works fine either way. First: `jwt.secret` had a committed placeholder default meant for local dev,
+and nothing stopped it from being the *real* secret if `JWT_SECRET` was ever left unset in an actual
+deployment — the app would start up normally and silently sign forgeable tokens with a value sitting
+in plaintext in `application.yml`. I added a startup check in `JwtIssuer` that refuses to start with
+that placeholder outside the `dev`/`test` profiles, so a misconfigured deployment fails loudly
+instead of running insecurely. Second: logout only ever cleared cookies client-side — the refresh
+token itself stayed valid server-side for up to 7 days after "logging out." I wired
+`AuthController.logout()` to actually revoke the refresh-token row, and proved it live: logged in,
+logged out, then tried to reuse the pre-logout refresh token and got a 401 instead of a fresh
+session.
+
 ### "What if Kafka goes down?"
 
 `KafkaEventPublisher` catches both an async send failure and the synchronous case — a producer
 blocking on missing topic metadata, which I cap at 3 seconds via `max.block.ms` (a real bug I found
-and fixed during the Spring Boot 4.1.0 migration, see `KAFKA_SETUP.md`) — and queues the event in
-an in-memory buffer, retried every 5 seconds until Kafka recovers. I'll be honest about the limits
-of this rather than oversell it: it's single-instance and in-memory, so queued events are lost on a
-restart, and it doesn't help once there's more than one app instance running. It buys me time
-through a transient outage; it isn't a durable outbox pattern, and I wouldn't claim it is.
+and fixed during the Spring Boot 4.1.0 migration, see `KAFKA_SETUP.md`) — and queues the event for
+retry every 5 seconds until Kafka recovers. That queue used to be a plain in-memory buffer, and I
+was upfront that it didn't survive a restart. I've since backed it with a Chronicle Queue file (same
+library as the trade journal) using a named tailer that persists its read position to disk, so a
+queued event now survives the app restarting mid-outage too — I proved that by actually killing
+Kafka, queuing a deposit, restarting the app container, bringing Kafka back up, and watching the
+pre-restart backlog get found and drained. It's still single-instance — a multi-instance deployment
+would need this backed by something shared instead — and I'll say that up front rather than let
+someone assume otherwise.
+
+One thing testing this taught me: `kafkaTemplate.send()` can throw two different,
+similarly-named exception types depending on *how* it fails — `org.springframework.kafka.
+KafkaException` for one failure mode, the raw `org.apache.kafka.common.KafkaException` for another
+(producer construction itself failing, e.g. the broker hostname not resolving at all). I'd only
+caught the Spring one, so that specific failure mode silently escaped uncaught straight past the
+fallback queue to the caller as a 500 — the exact case the queue exists to prevent. I only found it
+by deliberately taking Kafka down and hitting the API, not by reading the code.
+
+### "What happens to consumers — not just the publisher — when Kafka is down?"
+
+I found this the hard way while testing the durability fix above: with Kafka down at app startup,
+the whole app failed to boot, for two separate reasons, both eager, both fixed the same way. First,
+`KafkaConsumerLagMetrics`'s constructor called `AdminClient.create()` directly, which resolves the
+broker address immediately and throws if it can't — so a Kafka outage at boot crashed Spring's bean
+initialization outright. Second, and less obvious: Spring Kafka's `@KafkaListener` containers
+default to starting synchronously as part of `ApplicationContext` refresh, so the same outage
+crashed startup a second, independent way even after I'd fixed the first one. I fixed both with the
+same lazy-connect pattern I already use for the MCP client — never touch Kafka in a constructor —
+and for the listener containers specifically, set `autoStartup=false` on both container factories
+and added `KafkaListenerStartupRunner`, a scheduled task that starts each container individually
+once Kafka's actually reachable, retrying every 5 seconds per container rather than as one
+all-or-nothing group. I proved it by killing Kafka, confirming the app now boots healthy anyway,
+then bringing Kafka back and checking consumer group membership directly on the broker — all twelve
+expected groups (`risk-service`, `matching-engine`, and the rest) showed up with partitions
+assigned, with no app restart needed.
 
 ### "What if the fraud-detection AI (Claude) is down — or the MCP server it goes through?"
 

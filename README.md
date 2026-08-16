@@ -138,7 +138,7 @@ line above, and what real integration would take, in [DESIGN_DECISIONS.md](docs/
 
 Everything below I actually ran and checked, not just wrote and assumed would work:
 
-- **131 automated tests pass**, plus a real security test that proves one client's login can't see
+- **210 automated tests pass**, plus a real security test that proves one client's login can't see
   another client's account.
 - **Distributed tracing works end-to-end** — I can trace any request through the whole system in
   Jaeger, down to which exact step was slow. I verified this live, and along the way found a real
@@ -333,7 +333,7 @@ infrastructure are in the same doc.
 |---|---|
 | Order/Payment API crashes after publish, before responding | Event already in Kafka; client retries — payments are idempotent on `idempotencyKey`, matching is idempotent on `orderId` |
 | Any consuming service crashes (Risk, Matching, Execution, Fraud, Settlement, Reconciliation) | Kafka retains the record; consumer resumes from last committed offset on restart, nothing is lost |
-| Kafka unavailable | A failed publish is queued in a bounded in-memory fallback buffer (`KafkaEventPublisher`) and retried on a schedule — a single-instance safety net for a transient outage, not a durable store; queued events are lost on restart |
+| Kafka unavailable | A failed publish is queued for retry in a Chronicle Queue-backed fallback file (`KafkaEventPublisher`) and drained every 5 seconds once Kafka recovers — durable across an app restart now (proven live: killed Kafka, queued an event, restarted the app, brought Kafka back, watched the pre-restart backlog drain), still single-instance only. The app itself now boots fine even if Kafka is down at startup — `KafkaListenerStartupRunner` starts each consumer once Kafka's reachable instead of the whole app failing to start. See [docs/KAFKA_SETUP.md](docs/KAFKA_SETUP.md) for the three bugs I found fixing this properly. |
 | Postgres unavailable | Submission fails (write path); already-queued Kafka events are retried once Postgres recovers |
 | Bank clearing fails | Ledger entries reversed, payment marked `FAILED`, customer notified with the reason — see [docs/PAYMENT_SYSTEM.md](docs/PAYMENT_SYSTEM.md) |
 | A payment is flagged `UNDER_REVIEW` | Held until a `COMPLIANCE_OFFICER` calls `POST /v1/payments/{id}/approve` or `/reject` |
@@ -382,6 +382,13 @@ Swagger UI: `/v1/swagger-ui/index.html`. OpenAPI JSON: `/v1/api-docs`.
   built yet (a real OAuth2/OIDC IdP).
   No secrets are committed; `JWT_SECRET` and `CLAUDE_API_KEY` are environment
   variables with local-only placeholder defaults.
+- `POST /v1/auth/logout` actually revokes the refresh token server-side now, not just cookies
+  client-side — I found and fixed the gap where a stolen refresh token stayed valid for up to 7 days
+  after "logging out." `JwtIssuer` also refuses to start at all if `jwt.secret` is still the
+  known-insecure local-dev placeholder outside the `dev`/`test` profiles, so a deployment that
+  forgets to set `JWT_SECRET` fails loudly instead of silently signing forgeable tokens. See
+  [docs/INTERVIEW_TALKING_POINTS.md](docs/INTERVIEW_TALKING_POINTS.md#what-security-issue-did-you-find-and-fix-in-your-own-code)
+  for the full story on both.
 
 ### Test coverage — stated honestly
 
@@ -405,6 +412,7 @@ the Testcontainers networking environment, not in the application itself.
 | [docs/ACCOUNTS.md](docs/ACCOUNTS.md) | Accounts, transfers, conversion, loans, ownership security |
 | [docs/PAYMENT_SYSTEM.md](docs/PAYMENT_SYSTEM.md) | Cross-bank payment lifecycle and saga |
 | [docs/TRADING_SYSTEM.md](docs/TRADING_SYSTEM.md) | Order lifecycle and matching algorithm |
+| [docs/HOW_A_TRADE_FILLS.md](docs/HOW_A_TRADE_FILLS.md) | Plain-English walkthrough of why an order fills (or doesn't), a real bug found live, and a copy-pasteable demo script |
 | [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) | What's real vs. simulated, and why, in full |
 | [docs/OBSERVABILITY_PROOF.md](docs/OBSERVABILITY_PROOF.md) | Live-verified tracing/metrics/dashboards, with real data |
 | [docs/PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md) | Real Gatling load-test results |
@@ -417,14 +425,17 @@ the Testcontainers networking environment, not in the application itself.
 
 - **Done**: the full retail-banking domain (accounts, deposits/withdrawals, internal transfers, FX
   conversion, loans) with ownership-checked security; real signup/login (bcrypt, JWT issuance,
-  refresh-token rotation); a React/TypeScript frontend for all of it; Kafka-down fallback queue;
-  compliance-officer approval workflow; Kubernetes manifests + Helm chart (verified on a local
-  `kind` cluster); distributed tracing, metrics, and dashboards (verified live); Gatling load tests
-  (verified, real numbers); Postgres/Kafka/Redis on latest stable versions.
+  refresh-token rotation, server-side logout revocation); a React/TypeScript frontend for all of it;
+  a durable, Chronicle Queue-backed Kafka fallback queue that survives an app restart, with the app
+  itself now booting cleanly even if Kafka's down at startup; compliance-officer approval workflow;
+  Kubernetes manifests + Helm chart (verified on a local `kind` cluster); distributed tracing,
+  metrics, and dashboards (verified live); Gatling load tests (verified, real numbers);
+  Postgres/Kafka/Redis on latest stable versions.
 - **Remaining**: real SendGrid/Slack/bank-gateway integrations, wiring FX trade fills to move
-  account balances, a real GCP Cloud Run deployment (the pipeline is written but untested — I don't
-  have cloud credentials in this environment), GCP Secret Manager/KMS for secrets, fronting the
-  hand-rolled JWT issuer with a real OAuth2/OIDC identity provider.
+  account balances, API-wide rate limiting, Resilience4j around the MCP client, a real GCP Cloud Run
+  deployment (the pipeline is written but untested — I don't have cloud credentials in this
+  environment), GCP Secret Manager/KMS for secrets, fronting the hand-rolled JWT issuer with a real
+  OAuth2/OIDC identity provider.
 
 ## Contributing
 

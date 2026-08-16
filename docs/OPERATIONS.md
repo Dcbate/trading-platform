@@ -59,13 +59,26 @@ the fast fallback path while Claude recovers.
 ### "Kafka is down / a broker is unreachable"
 
 `KafkaEventPublisher` already handles this: I built it so a failed or timed-out send (capped at 3s
-via `max.block.ms`, see `KAFKA_SETUP.md`) gets queued in an in-memory fallback buffer and retried
-every 5 seconds (`kafka.fallback-queue.drain-interval-ms`) until it succeeds. Check
+via `max.block.ms`, see `KAFKA_SETUP.md`) gets queued in a Chronicle Queue-backed fallback file and
+retried every 5 seconds (`kafka.fallback-queue.drain-interval-ms`) until it succeeds. Check
 `kafka_fallback_queue_size` in Prometheus — a non-zero and growing value confirms this path is
-active. I want to be clear this is a **single-instance, in-memory** safety net (documented in
-`KafkaEventPublisher`'s javadoc): queued events are lost on restart, and it doesn't help a
-multi-instance deployment where only one instance can see the outage. It buys time for Kafka to
-recover; I wouldn't call it a substitute for actually fixing a prolonged broker outage.
+active (note: this gauge is a per-process counter that resets to zero on an app restart even though
+the underlying durable queue doesn't — if you restart the app mid-outage, don't read "gauge says 0"
+as "queue is empty," check the drain logs instead). It's still a **single-instance** safety net —
+it doesn't help a multi-instance deployment where only one instance can see the outage — but queued
+events now survive the app itself restarting mid-outage, which they didn't used to. Full story,
+including three bugs I found actually testing this (not just reading the code), in
+[`KAFKA_SETUP.md`](KAFKA_SETUP.md).
+
+Also worth knowing for a rolling restart or deploy during a Kafka outage: the app now boots and
+reports healthy even with Kafka completely unreachable — it used to crash-loop instead
+(`KafkaConsumerLagMetrics`'s `AdminClient` and the `@KafkaListener` containers both used to start
+eagerly during app startup and both would fail hard if Kafka wasn't there yet). Consumers connect
+in the background once Kafka's actually reachable, retried every 5 seconds per container
+(`KafkaListenerStartupRunner`) — check `docker logs` for "Kafka listener container started" per
+consumer group, or check consumer group membership directly on the broker
+(`kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list`) if you want to confirm a
+specific group actually joined rather than trusting the log line.
 
 ### "I need to debug a duplicate transfer/payment"
 
@@ -91,9 +104,9 @@ not a general ledger, so it usually isn't the first place to look for payment/tr
 
 ## Known operational limitations, stated directly
 
-- The Kafka fallback queue is in-memory and single-instance — not a durable store, and it doesn't
-  help once you run more than one app instance. I've flagged this in the code and here, not hidden
-  it.
+- The Kafka fallback queue is durable (Chronicle Queue-backed, survives an app restart) but still
+  single-instance — it doesn't help once you run more than one app instance, since each instance
+  only ever drains its own local queue file. I've flagged this in the code and here, not hidden it.
 - `BankClearingClientImpl`'s $500,000 failure threshold is a deterministic test seam I built,
   not a real risk control — see `DESIGN_DECISIONS.md` before treating a "failed" payment above that
   amount as a real clearing failure in this environment.

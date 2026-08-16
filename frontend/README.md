@@ -1,32 +1,38 @@
-# React + TypeScript + Vite
+# Bate Banking — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The real client for the app described in the [root README](../README.md) — not a demo shell.
+Signup, login, accounts, transfers, loans, FX/stock trading, and Game Mode all run against the real
+backend API, with cookie-based auth (HTTP-only, `SameSite=Strict`) rather than a token in
+`localStorage`.
 
-Currently, two official plugins are available:
+Stack: React 19 + TypeScript, Vite, Tailwind, Zustand (session state), TanStack Query (server
+state), React Router. See [docs/PROJECT_EXPLAINED.md](../docs/PROJECT_EXPLAINED.md) for how this
+fits into the rest of the system, and [docs/INFRASTRUCTURE_EXPLAINED.md](../docs/INFRASTRUCTURE_EXPLAINED.md)
+for why the frontend and backend are served same-origin through nginx (`nginx.conf`) rather than
+across two origins with CORS — it's what makes the `SameSite=Strict` cookies actually work.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Running it
 
-## React Compiler
+From the repo root, `./scripts/local-setup.sh` builds and serves this alongside the rest of the
+stack. To run just the frontend against an already-running backend:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev       # Vite dev server, proxies /v1 (incl. /v1/auth) and /actuator to localhost:8080
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`npm run build` produces the production bundle `Dockerfile` copies into the nginx image used by
+`docker-compose.yml`.
+
+## Layout
+
+```
+src/
+├── pages/        Login, Signup, Dashboard, Accounts, Transfer, Trading (FX/stock desk),
+│                 Loans, Settings, GameLobbyPage, GamePlayPage
+├── hooks/        one TanStack Query hook module per domain (useAccounts.ts, useGame.ts, ...)
+├── store/        Zustand — authStore (who's logged in), appStore (small cross-page UI state)
+├── api/          axios client: cookie-based auth, automatic refresh-and-retry on a 401
+├── components/   shared UI pieces
+└── lib/          formatting helpers, style constants, guestId.ts (Game Mode's anonymous-play id)
+```

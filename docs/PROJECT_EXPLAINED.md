@@ -144,7 +144,10 @@ src/main/java/com/dcbate/tradingplatform/
 │                  project (../bate-mcp-server/), with rule-based fallback if unreachable or the
 │                  server itself has no key configured
 ├── chronicle/     off-heap, memory-mapped, zero-GC trade journal
-├── kafka/         KafkaEventPublisher (+ fallback queue) and every kafka.event.* record
+├── kafka/         KafkaEventPublisher (+ durable, restart-surviving fallback queue),
+│                  KafkaListenerStartupRunner (consumers start once Kafka's reachable,
+│                  rather than the app crashing at boot if it isn't), and every
+│                  kafka.event.* record
 ├── config/        Kafka, Security, Trading, Chronicle, tracing config
 ├── exception/     domain exceptions + GlobalExceptionHandler (central HTTP status mapping)
 └── actuator/      custom health indicator (matching-engine order-book depth)
@@ -170,7 +173,12 @@ locally — never run `dev` outside local development.
 
 Login/signup (`auth/`) issues real JWTs (HS256, hand-rolled `JwtIssuer`, not a managed IdP) as
 HTTP-only, `SameSite=Strict` cookies. Refresh tokens rotate: redeeming one revokes it in the
-`refresh_tokens` table before issuing a new pair, so replay fails outright.
+`refresh_tokens` table before issuing a new pair, so replay fails outright. Logout revokes the
+current refresh token server-side too — it used to only clear cookies client-side, leaving a stolen
+token valid for up to 7 days after "logging out," which I found and fixed. `JwtIssuer` also refuses
+to start at all if `jwt.secret` is still the known-insecure local-dev placeholder outside the
+`dev`/`test` profiles, so a deployment that forgets to set a real `JWT_SECRET` fails loudly at boot
+instead of silently signing forgeable tokens.
 
 ## What's real vs. simulated (the honest version)
 
@@ -179,7 +187,7 @@ summary:
 
 | Piece | Status |
 |---|---|
-| Double-entry ledger, payment saga + compensation, ownership auth, Kafka pipeline + fallback queue, risk/fraud engines, loan interest accrual, matching engine, tracing/metrics | **Real** |
+| Double-entry ledger, payment saga + compensation, ownership auth, Kafka pipeline + a durable (Chronicle Queue-backed, restart-surviving) fallback queue, risk/fraud engines, loan interest accrual, matching engine, tracing/metrics | **Real** |
 | Claude anomaly enrichment / payment summaries / Game Mode debrief | **Real outbound API calls** when a key is configured; rule-based fallback otherwise — never blocks the underlying decision |
 | Email/Slack delivery | **Logged stand-in** — `EmailSenderImpl`/`SlackSenderImpl`; the retry/DLQ machinery around them is real |
 | Bank clearing (`BankClearingClient`) | **Deterministic stand-in** — payments under a configured threshold always clear, larger ones always fail, so both the settle and compensate paths are exercisable without a real correspondent-bank relationship |
@@ -201,7 +209,7 @@ debrief (a third, independent use of the same Claude integration pattern describ
 
 ## Testing and verification
 
-187 backend tests (unit + one Testcontainers integration test for the security model), plus
+210 backend tests (unit + one Testcontainers integration test for the security model), plus
 frontend TypeScript strict-mode compilation and a production Vite build on every change. Beyond
 automated tests, most features have been live-verified by hand against the running Docker Compose
 stack — including distributed traces actually appearing in Jaeger, Prometheus actually scraping

@@ -14,6 +14,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     List<Order> findByClientIdOrderByCreatedAtDesc(String clientId);
 
+    /**
+     * Backs {@code MatchingEngineServiceImpl}'s startup recovery — the in-memory order book is
+     * empty on every restart, so every order still resting (not yet fully filled or rejected) has
+     * to be replayed back into it in original arrival order, or it becomes permanently unmatchable.
+     */
+    List<Order> findByStatusInOrderByCreatedAtAsc(List<OrderStatus> statuses);
+
     @Query(
             "SELECT COALESCE(SUM(o.quantity * o.price), 0) FROM Order o "
                     + "WHERE o.clientId = :clientId AND o.status IN :statuses")

@@ -149,9 +149,11 @@ logic for payments.
 
 Everything not listed above: the double-entry ledger, the payment saga (reserve → ledger → clear →
 compensate) and its compensating-reversal correctness, ownership-based authorization, the Kafka
-event pipeline end to end (including the fallback queue for broker outages), the risk/fraud rule
-engines, loan interest accrual math, the matching engine, distributed tracing and metrics (see
-`OBSERVABILITY_PROOF.md`), and all three AI integrations (anomaly severity, payment summaries,
+event pipeline end to end — including a fallback queue for broker outages that's genuinely durable
+now (Chronicle Queue-backed, survives an app restart mid-outage, not just an in-memory buffer — see
+`docs/KAFKA_SETUP.md` for the three resilience bugs I found and fixed testing that properly) — the
+risk/fraud rule engines, loan interest accrual math, the matching engine, distributed tracing and
+metrics (see `OBSERVABILITY_PROOF.md`), and all three AI integrations (anomaly severity, payment summaries,
 Game Mode debrief) — every AI call in the app goes through the same Anthropic Claude API now,
 rather than splitting usage across two providers. As of the MCP migration, none of the three call
 Anthropic directly anymore: `ai/mcp/AnomalyDetectorImpl`, `ClaudeSummarizerImpl`, and `GameCoachImpl`

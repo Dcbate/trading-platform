@@ -32,18 +32,20 @@ profile; `dev` just also happens to permit unauthenticated requests to everythin
 mvn verify   # unit tests + the AccountSecurityIntegrationTest Testcontainers suite
 ```
 
-As of this handoff: **131 tests pass, 0 failures.** That number moves as I add tests — re-run to
-get the current one. It's down from an earlier 121 after I removed two Testcontainers integration
+As of this handoff: **210 tests pass, 0 failures.** That number moves as I add tests — re-run to
+get the current one. It dipped to 121 at one point after I removed two Testcontainers integration
 tests (`OrderFlowIntegrationTest`, `PaymentFlowIntegrationTest`) that proved flaky specifically in
 the Testcontainers networking environment on this machine, not in the application itself — an
-honest tradeoff I made rather than chase environment flakiness indefinitely — and back up with the
-signup/login/refresh-token tests added alongside real auth.
+honest tradeoff I made rather than chase environment flakiness indefinitely — then climbed back up
+through the signup/login/refresh-token tests added alongside real auth, and most recently the
+Kafka-resilience work (durable fallback queue, lazy `AdminClient`, per-container listener startup,
+the exception-type regression test — see `docs/KAFKA_SETUP.md`).
 
 ## What's built and verified live (not just written)
 
 | Domain | Verified how |
 |---|---|
-| **Signup/login** — real user accounts, bcrypt-hashed passwords, JWT issuance, refresh-token rotation | Unit tests (`AuthServiceImplTest`, `JwtIssuerTest`) + live via the frontend and `curl` |
+| **Signup/login** — real user accounts, bcrypt-hashed passwords, JWT issuance, refresh-token rotation, server-side logout revocation, fail-fast startup guard against the insecure default JWT secret | Unit tests (`AuthServiceImplTest`, `JwtIssuerTest`) + live via the frontend and `curl` — including logging in, logging out, and confirming the pre-logout refresh token is genuinely rejected (401) afterward |
 | **Accounts** — open (with an optional nickname to tell same-type/same-currency accounts apart), deposit, withdraw, list, get, list currencies | Unit tests + live via `docker compose`/`playground.html`/the frontend |
 | **FX conversion** ("sell balance" between own accounts) | Unit tests (direct + inverse rate lookup, no-rate-available case) + live |
 | **Internal transfers** ("pay other users," same bank, atomic) | Unit tests + live |
@@ -51,7 +53,7 @@ signup/login/refresh-token tests added alongside real auth.
 | **Loans** — product catalog, originate, view, repay (interest-first), scheduled daily accrual | Unit tests (incl. pure day-count interest math) + live |
 | **FX Trading Desk** — order intake, risk checks, matching engine, execution, Chronicle journal | Unit tests + live (matching buy/sell orders fill each other in under a second) |
 | **Ownership security** — a client's JWT can only touch their own resources | Unit tests (`AccessDeniedException` cases per service) + `AccountSecurityIntegrationTest` (Testcontainers, real JWT filter chain, cross-client 403 proven, not just role-checked) |
-| **Kafka-down fallback queue** | Unit tests (`KafkaEventPublisher`) |
+| **Kafka-down fallback queue** — durable (Chronicle Queue-backed, survives an app restart), plus the app now boots even if Kafka is down at startup | Unit tests (`KafkaEventPublisher`, `KafkaConsumerLagMetrics`, `KafkaListenerStartupRunner`) + live: killed Kafka, queued an event, restarted the app mid-outage, brought Kafka back, watched the backlog drain and all 12 consumer groups rejoin — see `docs/KAFKA_SETUP.md` |
 | **Compliance approve/reject for `UNDER_REVIEW` payments** | Unit tests + endpoint live |
 | **Kubernetes + Helm** | Verified against a real local `kind` cluster: all pods `Running`, liveness/readiness probes reporting `UP` via port-forward. Not verified against real GKE/EKS/cloud infra. |
 | **Claude AI enrichment** (fraud/anomaly severity, payment summaries, Game Mode debrief) | Wired for real (not mocked) via `bate-mcp-server`, a genuine standalone MCP server this app calls over real MCP (`ai/mcp/McpToolClient`) rather than calling Anthropic in-process; falls back to the rule-based description on any failure/missing key — server unreachable or Claude itself failing — without changing the underlying decision. Live-verified: a real background anomaly check made a real MCP call, got a real `isError` result back, and degraded correctly (see `bate-mcp-server/README.md`). |
@@ -120,7 +122,10 @@ src/main/java/com/dcbate/tradingplatform/
 │                                 all three now call bate-mcp-server (../bate-mcp-server/) over real
 │                                 MCP instead of Anthropic directly — see that module's README.md
 ├── chronicle/          Off-heap trade journal reader/writer
-├── kafka/              KafkaEventPublisher (+ fallback queue) and every kafka.event.* record
+├── kafka/              KafkaEventPublisher (+ durable Chronicle-backed fallback queue),
+│                      KafkaListenerStartupRunner (starts consumers once Kafka's reachable,
+│                      rather than crashing app boot if it isn't), KafkaConsumerLagMetrics,
+│                      and every kafka.event.* record
 ├── config/             Kafka, Security, Trading, Chronicle Queue, Tracing config + KafkaTopicsProperties
 ├── exception/          Domain exceptions + GlobalExceptionHandler (central HTTP status mapping)
 └── actuator/            Custom health indicator (matching-engine order-book depth)
