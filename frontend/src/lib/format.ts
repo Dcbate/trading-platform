@@ -1,4 +1,4 @@
-import type { AccountType } from '../types/api'
+import type { AccountType, StatementEntryType } from '../types/api'
 
 // UK banking vocabulary — a "checking account" and a "brokerage account" are American terms;
 // the underlying AccountType enum values stay as-is (API contract, DB rows), this only changes
@@ -12,6 +12,34 @@ const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
 
 export function accountTypeLabel(type: AccountType): string {
   return ACCOUNT_TYPE_LABELS[type]
+}
+
+const STATEMENT_ENTRY_TYPE_LABELS: Record<StatementEntryType, string> = {
+  FX_ORDER: 'FX order',
+  PAYMENT: 'Payment',
+  TRANSFER_OUT: 'Transfer sent',
+  TRANSFER_IN: 'Transfer received',
+  DEPOSIT: 'Deposit',
+  WITHDRAWAL: 'Withdrawal',
+  CONVERSION: 'Conversion',
+  ACCOUNT_CLOSURE: 'Account closed',
+  LOAN_ORIGINATED: 'Loan originated',
+  LOAN_REPAYMENT: 'Loan repayment',
+}
+
+export function statementEntryTypeLabel(type: StatementEntryType): string {
+  return STATEMENT_ENTRY_TYPE_LABELS[type]
+}
+
+// No currency on an entry (FX orders, payments, transfers — see BankStatementEntry's javadoc for
+// why) means there's no single account balance being moved in a currency-safe way to format
+// against, so this shows a bare signed number rather than guessing a currency symbol.
+export function formatSignedAmount(amount: number, currency: string | null): string {
+  if (currency) {
+    return formatMoney(amount, currency)
+  }
+  const sign = amount > 0 ? '+' : ''
+  return sign + new Intl.NumberFormat('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)
 }
 
 // Real currency symbols via the platform Intl API — a EUR or GBP balance was previously shown

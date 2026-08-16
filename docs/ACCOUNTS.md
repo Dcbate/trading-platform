@@ -61,9 +61,12 @@ doesn't get you there.
 
 `POST /v1/accounts/{accountId}/deposit` and `/withdraw`, body `{amount}`. Ownership-checked,
 requires `status == ACTIVE`; withdrawal additionally requires sufficient balance
-(`InsufficientFundsException` → 409). Both mutate `Account.balance` directly inside one transaction
-and publish an `AccountActivityEvent` to `account-activity` — the same event-sourced audit trail
-pattern I use for payments, just for money that didn't come from a `Payment` row.
+(`InsufficientFundsException` → 409). Both mutate `Account.balance` directly inside one transaction,
+persist an `AccountActivity` row, and publish an `AccountActivityEvent` to `account-activity` — the
+same event-sourced audit trail pattern I use for payments, just for money that didn't come from a
+`Payment` row. Conversion (§6) and closure (§3) write the same `AccountActivity` table with their
+own `type`. This row is what makes deposits/withdrawals/conversions queryable per client, not just
+a fire-and-forget Kafka event — see §10.
 
 ## 5. Internal transfers — "pay other users money"
 
@@ -166,3 +169,23 @@ pattern I used everywhere else in the platform (including the Kafka-down fallbac
 | Convert with no cached FX rate for the pair (or its inverse) | `RateUnavailableException` → 409 |
 | Repay a `PAID_OFF` loan | `LoanNotActiveException` → 409 |
 | A client's token used against another client's account/payment/transfer/loan | `AccessDeniedException` → 403, proven end-to-end by `AccountSecurityIntegrationTest` |
+
+## 10. Bank statement — a unified history
+
+`GET /v1/statement?clientId=` (`BankStatementController` → `BankStatementServiceImpl`,
+ownership-checked the same way as everything else) merges five sources into one
+newest-first feed: FX orders, payments, transfers, account activity, and loan activity.
+
+Before this existed, deposits/withdrawals/conversions/closures and loan repayments were only ever
+published to Kafka for audit — genuinely useful history a client would expect to see was
+unqueryable, only the *current* balance/loan state was. Two new tables close that: `account_activity`
+(deposit/withdraw/convert/close, written by `AccountServiceImpl` alongside every `AccountActivityEvent`
+publish) and `loan_activity` (origination/repayment, written by `LoanServiceImpl` alongside every
+`LoanEvent` publish). Each is the persisted twin of an event that was already being published — same
+data, now also a row, so nothing about the Kafka contract changed.
+
+One deliberate simplification: an FX order's `amount` always comes back `null` on the statement.
+`ExecutionServiceImpl` settles fills against `Account.balance` at the individual-`Trade` level, and
+a partially-filled order's exact settled notional would have to be re-derived by summing `Trade`
+rows rather than showing the genuine, queryable `Order` row I already have. Flagged, not hidden —
+see [KNOWN_GAPS.md](KNOWN_GAPS.md).

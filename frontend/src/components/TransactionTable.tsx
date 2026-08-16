@@ -1,7 +1,6 @@
 // A generic list table, reused for accounts (AccountsPage), loans (LoansPage), orders and
-// positions (TradingPage). The backend doesn't expose a per-account transaction-history endpoint
-// (deposits/transfers/loan repayments are Kafka-published for audit, not queryable as a list —
-// see docs/ACCOUNTS.md §8), so this deliberately isn't a fake "recent transactions" feed; it's
+// positions (TradingPage), and the unified deposit/transfer/loan/order feed (BankStatementPage,
+// GET /v1/statement — see docs/ACCOUNTS.md §8). Not a fake "recent transactions" feed; it's
 // whatever real, queryable rows the page hands it.
 export interface Column<T> {
   header: string

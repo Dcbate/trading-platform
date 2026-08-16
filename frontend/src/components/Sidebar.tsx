@@ -11,6 +11,7 @@ import {
   Sun,
   Moon,
   Gamepad2,
+  FileText,
 } from 'lucide-react'
 import { useAuth, useLogout } from '../hooks/useAuth'
 import { useThemeStore } from '../store/themeStore'
@@ -24,6 +25,7 @@ const groups = [
     title: 'Banking',
     links: [
       { to: '/accounts', label: 'Accounts', icon: Wallet },
+      { to: '/statement', label: 'Bank Statement', icon: FileText },
       { to: '/transfer', label: 'Transfers', icon: ArrowLeftRight },
       { to: '/loans', label: 'Loans', icon: Percent },
     ],

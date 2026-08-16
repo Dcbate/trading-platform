@@ -113,6 +113,32 @@ export interface PositionResponse {
   updatedAt: string
 }
 
+export type StatementEntryType =
+  | 'FX_ORDER'
+  | 'PAYMENT'
+  | 'TRANSFER_OUT'
+  | 'TRANSFER_IN'
+  | 'DEPOSIT'
+  | 'WITHDRAWAL'
+  | 'CONVERSION'
+  | 'ACCOUNT_CLOSURE'
+  | 'LOAN_ORIGINATED'
+  | 'LOAN_REPAYMENT'
+
+export interface BankStatementEntry {
+  occurredAt: string
+  type: StatementEntryType
+  description: string
+  amount: number | null
+  currency: string | null
+  reference: string
+}
+
+export interface BankStatementResponse {
+  clientId: string
+  entries: BankStatementEntry[]
+}
+
 export interface ApiError {
   timestamp: string
   status: number

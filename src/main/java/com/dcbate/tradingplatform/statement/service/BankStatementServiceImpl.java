@@ -4,11 +4,13 @@ import com.dcbate.tradingplatform.account.repository.AccountActivityRepository;
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
 import com.dcbate.tradingplatform.domain.Account;
 import com.dcbate.tradingplatform.domain.AccountActivity;
+import com.dcbate.tradingplatform.domain.Loan;
 import com.dcbate.tradingplatform.domain.LoanActivity;
 import com.dcbate.tradingplatform.domain.Order;
 import com.dcbate.tradingplatform.domain.Payment;
 import com.dcbate.tradingplatform.domain.Transfer;
 import com.dcbate.tradingplatform.loan.repository.LoanActivityRepository;
+import com.dcbate.tradingplatform.loan.repository.LoanRepository;
 import com.dcbate.tradingplatform.payment.repository.PaymentRepository;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
 import com.dcbate.tradingplatform.statement.api.dto.BankStatementEntry;
@@ -43,6 +45,7 @@ public class BankStatementServiceImpl implements BankStatementService {
     private final TransferRepository transferRepository;
     private final AccountActivityRepository accountActivityRepository;
     private final LoanActivityRepository loanActivityRepository;
+    private final LoanRepository loanRepository;
     private final AccountRepository accountRepository;
 
     @Override
@@ -52,6 +55,8 @@ public class BankStatementServiceImpl implements BankStatementService {
 
         Map<UUID, Account> accountsById = accountRepository.findByClientId(clientId).stream()
                 .collect(java.util.stream.Collectors.toMap(Account::getAccountId, Function.identity()));
+        Map<UUID, Loan> loansById = loanRepository.findByClientId(clientId).stream()
+                .collect(java.util.stream.Collectors.toMap(Loan::getLoanId, Function.identity()));
 
         List<BankStatementEntry> entries = new ArrayList<>();
         orderRepository.findByClientIdOrderByCreatedAtDesc(clientId).forEach(o -> entries.add(orderEntry(o)));
@@ -61,7 +66,7 @@ public class BankStatementServiceImpl implements BankStatementService {
         accountActivityRepository.findByClientIdOrderByOccurredAtDesc(clientId)
                 .forEach(a -> entries.add(accountActivityEntry(a, accountsById)));
         loanActivityRepository.findByClientIdOrderByOccurredAtDesc(clientId)
-                .forEach(l -> entries.add(loanActivityEntry(l)));
+                .forEach(l -> entries.add(loanActivityEntry(l, loansById, accountsById)));
 
         entries.sort(Comparator.comparing(BankStatementEntry::occurredAt).reversed());
         return new BankStatementResponse(clientId, entries);
@@ -71,63 +76,60 @@ public class BankStatementServiceImpl implements BankStatementService {
         String description = "%s %s %s @ %s — %s".formatted(
                 order.getSide(), order.getQuantity().stripTrailingZeros().toPlainString(),
                 order.getCurrencyPair(), order.getPrice(), order.getStatus());
-        return new BankStatementEntry(order.getCreatedAt(), StatementEntryType.FX_ORDER, description, null, order.getOrderId());
+        return new BankStatementEntry(order.getCreatedAt(), StatementEntryType.FX_ORDER, description, null, null, order.getOrderId());
     }
 
     private BankStatementEntry paymentEntry(Payment payment) {
         String description = "Payment to a bank in %s — %s".formatted(payment.getCountry(), payment.getStatus());
-        return new BankStatementEntry(
-                payment.getCreatedAt(), StatementEntryType.PAYMENT, description, payment.getAmount().negate(), payment.getPaymentId());
+        return new BankStatementEntry(payment.getCreatedAt(), StatementEntryType.PAYMENT, description,
+                payment.getAmount().negate(), null, payment.getPaymentId());
     }
 
     private List<BankStatementEntry> transferEntries(Transfer transfer, String clientId) {
         List<BankStatementEntry> result = new ArrayList<>();
         if (transfer.getFromClientId().equals(clientId)) {
             String description = "Transfer to client %s — %s".formatted(shortId(transfer.getToClientId()), transfer.getStatus());
-            result.add(new BankStatementEntry(
-                    transfer.getCreatedAt(), StatementEntryType.TRANSFER_OUT, description,
-                    transfer.getAmount().negate(), transfer.getTransferId()));
+            result.add(new BankStatementEntry(transfer.getCreatedAt(), StatementEntryType.TRANSFER_OUT, description,
+                    transfer.getAmount().negate(), null, transfer.getTransferId()));
         }
         if (transfer.getToClientId().equals(clientId)) {
             String description = "Transfer from client %s — %s".formatted(shortId(transfer.getFromClientId()), transfer.getStatus());
-            result.add(new BankStatementEntry(
-                    transfer.getCreatedAt(), StatementEntryType.TRANSFER_IN, description,
-                    transfer.getAmount(), transfer.getTransferId()));
+            result.add(new BankStatementEntry(transfer.getCreatedAt(), StatementEntryType.TRANSFER_IN, description,
+                    transfer.getAmount(), null, transfer.getTransferId()));
         }
         return result;
     }
 
     private BankStatementEntry accountActivityEntry(AccountActivity activity, Map<UUID, Account> accountsById) {
-        String accountLabel = accountLabel(accountsById.get(activity.getAccountId()));
+        Account account = accountsById.get(activity.getAccountId());
+        String accountLabel = accountLabel(account);
+        String currency = account != null ? account.getCurrency() : null;
         return switch (activity.getType()) {
-            case DEPOSIT -> new BankStatementEntry(
-                    activity.getOccurredAt(), StatementEntryType.DEPOSIT, "Deposit into " + accountLabel,
-                    activity.getAmount(), activity.getActivityId());
-            case WITHDRAWAL -> new BankStatementEntry(
-                    activity.getOccurredAt(), StatementEntryType.WITHDRAWAL, "Withdrawal from " + accountLabel,
-                    activity.getAmount().negate(), activity.getActivityId());
-            case CONVERSION -> new BankStatementEntry(
-                    activity.getOccurredAt(), StatementEntryType.CONVERSION,
+            case DEPOSIT -> new BankStatementEntry(activity.getOccurredAt(), StatementEntryType.DEPOSIT,
+                    "Deposit into " + accountLabel, activity.getAmount(), currency, activity.getActivityId());
+            case WITHDRAWAL -> new BankStatementEntry(activity.getOccurredAt(), StatementEntryType.WITHDRAWAL,
+                    "Withdrawal from " + accountLabel, activity.getAmount().negate(), currency, activity.getActivityId());
+            case CONVERSION -> new BankStatementEntry(activity.getOccurredAt(), StatementEntryType.CONVERSION,
                     "Converted from %s to %s at rate %s".formatted(
                             accountLabel, accountLabel(accountsById.get(activity.getRelatedAccountId())), activity.getRate()),
-                    activity.getAmount().negate(), activity.getActivityId());
-            case CLOSURE -> new BankStatementEntry(
-                    activity.getOccurredAt(), StatementEntryType.ACCOUNT_CLOSURE,
+                    activity.getAmount().negate(), currency, activity.getActivityId());
+            case CLOSURE -> new BankStatementEntry(activity.getOccurredAt(), StatementEntryType.ACCOUNT_CLOSURE,
                     "Closed %s, balance swept to %s".formatted(
                             accountLabel, accountLabel(accountsById.get(activity.getRelatedAccountId()))),
-                    activity.getAmount().negate(), activity.getActivityId());
+                    activity.getAmount().negate(), currency, activity.getActivityId());
         };
     }
 
-    private BankStatementEntry loanActivityEntry(LoanActivity activity) {
+    private BankStatementEntry loanActivityEntry(LoanActivity activity, Map<UUID, Loan> loansById, Map<UUID, Account> accountsById) {
+        Loan loan = loansById.get(activity.getLoanId());
+        Account account = loan != null ? accountsById.get(loan.getAccountId()) : null;
+        String currency = account != null ? account.getCurrency() : null;
         return switch (activity.getType()) {
-            case ORIGINATED -> new BankStatementEntry(
-                    activity.getOccurredAt(), StatementEntryType.LOAN_ORIGINATED, "Loan originated",
-                    activity.getAmount(), activity.getActivityId());
-            case REPAYMENT -> new BankStatementEntry(
-                    activity.getOccurredAt(), StatementEntryType.LOAN_REPAYMENT,
+            case ORIGINATED -> new BankStatementEntry(activity.getOccurredAt(), StatementEntryType.LOAN_ORIGINATED,
+                    "Loan originated", activity.getAmount(), currency, activity.getActivityId());
+            case REPAYMENT -> new BankStatementEntry(activity.getOccurredAt(), StatementEntryType.LOAN_REPAYMENT,
                     "Loan repayment — %s outstanding".formatted(activity.getOutstandingPrincipal()),
-                    activity.getAmount().negate(), activity.getActivityId());
+                    activity.getAmount().negate(), currency, activity.getActivityId());
         };
     }
 

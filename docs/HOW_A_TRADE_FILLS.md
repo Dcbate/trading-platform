@@ -53,11 +53,16 @@ of nothing, the same conceptual role a company issuing new shares plays in a rea
 polished feature — it's a real gap being used on purpose, and I want to be upfront about that rather
 than pretend there's a proper issuance mechanism.
 
-## The gap I actually found live: a "ghost" order
+## The gap I actually found live: a "ghost" order (since fixed)
+
+*Update: the bug described in this section is fixed — see [Fixed: recovering the book on
+startup](#fixed-recovering-the-book-on-startup) below for the live proof. Left the original
+narrative in place because it's the honest account of how the bug was found and why it mattered;
+the fix section explains what changed and re-proves it against a real restart.*
 
 While trying to explain all this, I discovered something worse than "nobody's placed a matching
 order yet." My very first TSLA buy — placed at 09:13:28, sitting at `VALIDATED` — turned out to be
-**permanently unfillable**, for a reason that has nothing to do with price.
+**permanently unfillable at the time**, for a reason that has nothing to do with price.
 
 The list of orders currently waiting to match lives in the app's short-term memory (RAM), not
 permanently on disk. Postgres remembers that your order exists and what status it's in, but the
@@ -141,7 +146,44 @@ restart is stuck forever, silently, with no error and no indication anywhere tha
 `VALIDATED`/`PARTIALLY_FILLED` status and replay each one through `MatchingEngineServiceImpl.match()`
 before the app starts accepting new order traffic — effectively rebuilding the book from the
 database instead of trusting Kafka's committed offset to still reflect "what's actually resting."
-Not done here; flagged rather than hidden.
+That's exactly what got built — see below.
+
+## Fixed: recovering the book on startup
+
+`MatchingEngineServiceImpl` now has a `@PostConstruct recoverRestingOrders()` method that does
+exactly what the section above described: query `OrderRepository` for every order still
+`VALIDATED` or `PARTIALLY_FILLED`, compute how much of each is actually still outstanding (a
+`PARTIALLY_FILLED` order's remaining quantity is derived by subtracting `SUM(Trade.quantity)` from
+`Order.quantity` — `Order` itself doesn't track a running filled quantity), and replay each one
+through the same `match()` method live orders use, oldest first.
+
+Two things make this safe rather than just plausible:
+
+- **Ordering.** Spring constructs beans by resolving constructor dependencies first —
+  `MatchingEngineConsumerRunner` takes `MatchingEngineService` as a constructor argument, so Spring
+  cannot construct the consumer until `MatchingEngineServiceImpl`'s own construction (including its
+  `@PostConstruct`) has finished. No new-order Kafka message can reach `match()` before recovery has
+  already run. No `@DependsOn` needed — it falls out of the existing dependency graph.
+- **Reusing `match()`, not a separate insert path.** Orders still resting at shutdown can't have
+  crossed each other — if they had, the matching engine would already have resolved that while it
+  was running, and neither would still be resting. So replaying them through the ordinary matching
+  path in original arrival order is safe, and it means recovery can never drift out of sync with
+  what live trading does, because it *is* live trading, just fed from Postgres instead of Kafka.
+
+**Live proof, a real restart:**
+
+1. Submitted a fresh EUR/USD buy with no crossing counter-order — it rested at `VALIDATED`, and
+   `/actuator/health` → `components.matchingEngine.details.restingOrders` read `3` (2 pre-existing
+   ghost orders from before this fix, plus the new one).
+2. `docker compose restart app` — a real container restart, not a reload.
+3. After the app reported healthy again: the order was still `VALIDATED`, and
+   `restingOrders` was still `3` — nothing was lost.
+4. Submitted a matching sell. The order that had survived the restart flipped to `FILLED` within
+   two seconds, and `restingOrders` dropped back to `2` — proof it wasn't just a status label that
+   survived, it was still genuinely sitting in the live order book, reachable by a real match.
+
+This closes the gap for good — a resting order now survives any number of restarts, the same way
+it always looked like it should.
 
 ## Reproducing this yourself
 

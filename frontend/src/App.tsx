@@ -7,6 +7,7 @@ import { LoginPage } from './pages/LoginPage'
 import { SignupPage } from './pages/SignupPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { AccountsPage } from './pages/AccountsPage'
+import { BankStatementPage } from './pages/BankStatementPage'
 import { TransferPage } from './pages/TransferPage'
 import { LoansPage } from './pages/LoansPage'
 import { FXMarketsPage } from './pages/FXMarketsPage'
@@ -39,6 +40,7 @@ function App() {
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/accounts" element={<AccountsPage />} />
+            <Route path="/statement" element={<BankStatementPage />} />
             <Route path="/transfer" element={<TransferPage />} />
             <Route path="/loans" element={<LoansPage />} />
             <Route path="/fx" element={<FXMarketsPage />} />

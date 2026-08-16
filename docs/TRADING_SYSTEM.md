@@ -28,12 +28,15 @@ I didn't build a cancellation or expiry endpoint — an order that rests in the 
 fully unfilled) just stays `VALIDATED` or `PARTIALLY_FILLED` indefinitely. It's a real gap for
 anything resembling production use, and I'd rather flag it than let it look like an oversight.
 
-There's a second, worse version of this I only found by actually testing it: the in-memory order
-book itself doesn't survive an app restart — nothing rebuilds it from Postgres on startup, and the
-Kafka consumer feeding it resumes from its last committed offset, not a full replay. An order left
-resting across a restart becomes permanently unmatchable while still showing `VALIDATED` — a real
-bug, not a documented tradeoff, caught live rather than by code review. Full story, including the
-real order IDs and timestamps from finding it, in
+There's a second, worse version of this I only found by actually testing it, and have since fixed:
+the in-memory order book didn't survive an app restart — nothing rebuilt it from Postgres on
+startup, and the Kafka consumer feeding it resumes from its last committed offset, not a full
+replay. An order left resting across a restart became permanently unmatchable while still showing
+`VALIDATED` — a real bug, not a documented tradeoff, caught live rather than by code review.
+`MatchingEngineServiceImpl` now has a `@PostConstruct recoverRestingOrders()` that reloads every
+`VALIDATED`/`PARTIALLY_FILLED` order from Postgres before the app accepts new traffic, verified by
+actually restarting the container and confirming a resting order survived and could still fill.
+Full story, including the real order IDs and timestamps from finding *and* fixing it, in
 [docs/HOW_A_TRADE_FILLS.md](HOW_A_TRADE_FILLS.md).
 
 ## 2. Matching algorithm
