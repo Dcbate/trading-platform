@@ -4,10 +4,13 @@ name: Deploy
 # never run — this repo has no GCP project or Workload Identity Federation pool configured, and
 # this file has not been exercised against real GCP. See docs/DEPLOYMENT.md for what's needed to
 # actually turn this on.
+#
+# Deliberately manual-trigger only for now (no `push` trigger): this used to run on every push to
+# main and fail at the GCP auth step every time, since `vars.GCP_WORKLOAD_IDENTITY_PROVIDER` and
+# `vars.GCP_DEPLOY_SERVICE_ACCOUNT` aren't set — a real failure, not flakiness. Once a GCP project
+# and those repo variables exist, add `push: branches: [main]` back under `on:` below.
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch: {}
 
 env:

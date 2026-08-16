@@ -138,11 +138,14 @@ loan:
     # Daily simple-interest accrual for all ACTIVE loans — see LoanServiceImpl.accrueInterest().
     accrual-cron: "0 0 3 * * *"
 
-claude:
-  api-key: ${CLAUDE_API_KEY:placeholder-set-me}
-  api-url: https://api.anthropic.com
-  model: claude-3-5-haiku-20241022
-  timeout-ms: 2000
+# Every AI call (fraud/anomaly severity, payment summaries, Game Mode debrief) goes through
+# bate-mcp-server over real MCP now — see ai/mcp/McpToolClient.java. This app no longer holds
+# an Anthropic API key itself; bate-mcp-server is the only thing that does.
+mcp:
+  server:
+    url: ${MCP_SERVER_URL:http://localhost:8081/mcp}
+  client:
+    timeout-ms: 3000
 
 kafka:
   topics:

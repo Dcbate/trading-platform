@@ -49,10 +49,24 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+
+        <!-- MCP client — every AI call (fraud/anomaly severity, payment summaries, Game Mode
+             debrief) goes through bate-mcp-server over real MCP now, not a direct Anthropic call.
+             The raw SDK, not a Spring AI client starter: this app needs one thing (call a named
+             tool, get text back, degrade gracefully if the server's unreachable), and the SDK's
+             McpClient/HttpClientStreamableHttpTransport gives that directly without pulling in
+             Spring AI's broader ChatClient/tool-calling machinery this app doesn't use. Versions
+             pinned to match bate-mcp-server's Spring AI 2.0.0-managed SDK version, since this
+             module doesn't import spring-ai-bom for just two dependencies. -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webflux</artifactId>
-            <!-- WebClient only, for the Claude API client -->
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-core</artifactId>
+            <version>2.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-json-jackson3</artifactId>
+            <version>2.0.0</version>
         </dependency>
 
         <!-- Security -->
