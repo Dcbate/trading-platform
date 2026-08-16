@@ -18,6 +18,7 @@ import com.dcbate.tradingplatform.exception.LoanNotFoundException;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.loan.api.dto.LoanRequest;
 import com.dcbate.tradingplatform.loan.api.dto.LoanResponse;
+import com.dcbate.tradingplatform.loan.repository.LoanActivityRepository;
 import com.dcbate.tradingplatform.loan.repository.LoanRepository;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -40,6 +41,9 @@ class LoanServiceImplTest {
     private LoanRepository loanRepository;
 
     @Mock
+    private LoanActivityRepository loanActivityRepository;
+
+    @Mock
     private AccountRepository accountRepository;
 
     @Mock
@@ -57,7 +61,8 @@ class LoanServiceImplTest {
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
                 "payments", "payments-validated", "ledger-entries", "fraud-alerts", "notifications",
                 "account-activity", "transfers", "loans");
-        loanService = new LoanServiceImpl(loanRepository, accountRepository, kafkaEventPublisher, topics, new SimpleMeterRegistry());
+        loanService = new LoanServiceImpl(
+                loanRepository, loanActivityRepository, accountRepository, kafkaEventPublisher, topics, new SimpleMeterRegistry());
     }
 
     private Account account(BigDecimal balance) {

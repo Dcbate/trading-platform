@@ -11,6 +11,7 @@ import com.dcbate.tradingplatform.account.api.dto.BalanceSummaryResponse;
 import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.account.api.dto.CurrencyBalance;
+import com.dcbate.tradingplatform.account.repository.AccountActivityRepository;
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
@@ -44,6 +45,9 @@ class AccountServiceImplTest {
     private AccountRepository accountRepository;
 
     @Mock
+    private AccountActivityRepository accountActivityRepository;
+
+    @Mock
     private KafkaEventPublisher kafkaEventPublisher;
 
     @Mock
@@ -61,7 +65,7 @@ class AccountServiceImplTest {
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
                 "payments", "payments-validated", "ledger-entries", "fraud-alerts", "notifications",
                 "account-activity", "transfers", "loans");
-        accountService = new AccountServiceImpl(accountRepository, kafkaEventPublisher, topics, priceFeedService);
+        accountService = new AccountServiceImpl(accountRepository, accountActivityRepository, kafkaEventPublisher, topics, priceFeedService);
     }
 
     private Account account(UUID accountId, String clientId, String currency, BigDecimal balance) {

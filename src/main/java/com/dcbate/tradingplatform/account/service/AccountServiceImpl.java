@@ -6,9 +6,11 @@ import com.dcbate.tradingplatform.account.api.dto.BalanceSummaryResponse;
 import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.account.api.dto.CurrencyBalance;
+import com.dcbate.tradingplatform.account.repository.AccountActivityRepository;
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
+import com.dcbate.tradingplatform.domain.AccountActivity;
 import com.dcbate.tradingplatform.domain.AccountActivityType;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.exception.AccountNotActiveException;
@@ -43,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccountServiceImpl implements AccountService {
 
     private final AccountRepository accountRepository;
+    private final AccountActivityRepository accountActivityRepository;
     private final KafkaEventPublisher kafkaEventPublisher;
     private final KafkaTopicsProperties topics;
     private final PriceFeedService priceFeedService;
@@ -226,10 +229,22 @@ public class AccountServiceImpl implements AccountService {
     }
 
     private void publishActivity(Account account, AccountActivityType type, BigDecimal amount, UUID relatedAccountId, BigDecimal rate) {
+        Instant now = Instant.now();
+        accountActivityRepository.save(AccountActivity.builder()
+                .activityId(UUID.randomUUID())
+                .accountId(account.getAccountId())
+                .clientId(account.getClientId())
+                .type(type)
+                .amount(amount)
+                .balanceAfter(account.getBalance())
+                .relatedAccountId(relatedAccountId)
+                .rate(rate)
+                .occurredAt(now)
+                .build());
         kafkaEventPublisher.publish(
                 topics.accountActivity(),
                 account.getClientId(),
                 new AccountActivityEvent(account.getAccountId(), account.getClientId(), type, amount,
-                        account.getBalance(), relatedAccountId, rate, Instant.now()));
+                        account.getBalance(), relatedAccountId, rate, now));
     }
 }

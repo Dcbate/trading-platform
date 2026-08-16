@@ -5,6 +5,7 @@ import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.domain.Loan;
+import com.dcbate.tradingplatform.domain.LoanActivity;
 import com.dcbate.tradingplatform.domain.LoanEventType;
 import com.dcbate.tradingplatform.domain.LoanStatus;
 import com.dcbate.tradingplatform.exception.AccountNotActiveException;
@@ -16,6 +17,7 @@ import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.kafka.event.LoanEvent;
 import com.dcbate.tradingplatform.loan.api.dto.LoanRequest;
 import com.dcbate.tradingplatform.loan.api.dto.LoanResponse;
+import com.dcbate.tradingplatform.loan.repository.LoanActivityRepository;
 import com.dcbate.tradingplatform.loan.repository.LoanRepository;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -45,6 +47,7 @@ public class LoanServiceImpl implements LoanService {
     private static final int DAYS_PER_YEAR = 365;
 
     private final LoanRepository loanRepository;
+    private final LoanActivityRepository loanActivityRepository;
     private final AccountRepository accountRepository;
     private final KafkaEventPublisher kafkaEventPublisher;
     private final KafkaTopicsProperties topics;
@@ -181,8 +184,20 @@ public class LoanServiceImpl implements LoanService {
     }
 
     private void publishEvent(Loan loan, LoanEventType type, BigDecimal amount) {
+        Instant now = Instant.now();
+        loanActivityRepository.save(LoanActivity.builder()
+                .activityId(UUID.randomUUID())
+                .loanId(loan.getLoanId())
+                .clientId(loan.getClientId())
+                .type(type)
+                .amount(amount)
+                .outstandingPrincipal(loan.getOutstandingPrincipal())
+                .accruedInterest(loan.getAccruedInterest())
+                .status(loan.getStatus())
+                .occurredAt(now)
+                .build());
         kafkaEventPublisher.publish(topics.loans(), loan.getClientId(), new LoanEvent(
                 loan.getLoanId(), loan.getClientId(), type, amount,
-                loan.getOutstandingPrincipal(), loan.getAccruedInterest(), loan.getStatus(), Instant.now()));
+                loan.getOutstandingPrincipal(), loan.getAccruedInterest(), loan.getStatus(), now));
     }
 }
