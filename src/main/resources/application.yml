@@ -173,6 +173,8 @@ kafka:
     # KafkaEventPublisher's javadoc.
     drain-interval-ms: 5000
     max-drain-per-cycle: 1000
+  listener-startup:
+    retry-interval-ms: 5000
 
 logging:
   pattern:

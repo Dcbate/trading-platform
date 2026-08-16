@@ -8,7 +8,6 @@ import net.openhft.chronicle.queue.ExcerptAppender;
 import net.openhft.chronicle.queue.ExcerptTailer;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -67,12 +66,15 @@ public class KafkaEventPublisher {
                     enqueueForRetry(topic, key, payload);
                 }
             });
-        } catch (KafkaException e) {
+        } catch (Exception e) {
             // send() itself blocks the caller (up to the producer's max.block.ms, see
             // KafkaConfig.producerFactory) waiting on topic metadata before it can even return a
-            // Future; if that wait times out, Spring wraps it and throws synchronously rather than
-            // surfacing via whenComplete. Same fallback path as an async failure, so a slow/
-            // unavailable broker never stalls the calling HTTP request.
+            // Future; if that wait times out, or producer construction itself fails outright (e.g.
+            // bootstrap.servers doesn't resolve at all — org.apache.kafka.common.KafkaException,
+            // NOT Spring's org.springframework.kafka.KafkaException wrapper), it throws
+            // synchronously here rather than surfacing via whenComplete. Catching broadly rather
+            // than one specific type is deliberate: this is the last line of defense before the
+            // exception would otherwise escape to the calling HTTP request.
             log.error("Failed to submit send for topic={} key={}: {}", topic, key, e.getMessage());
             enqueueForRetry(topic, key, payload);
         }
@@ -115,7 +117,12 @@ public class KafkaEventPublisher {
             if (payload == null) {
                 return null;
             }
-            pendingCount.decrementAndGet();
+            // Clamped at zero rather than a plain decrement: after a restart, pendingCount starts
+            // back at 0 while the durable queue itself may still hold a backlog from before the
+            // restart (see the class javadoc) — draining that invisible-to-the-counter backlog
+            // would otherwise walk the gauge negative, which reads as a bug on a dashboard even
+            // though it's a faithful "more got drained than this process ever counted" signal.
+            pendingCount.updateAndGet(current -> Math.max(0, current - 1));
             return objectMapper.readValue(payload, PendingRecord.class);
         } catch (Exception e) {
             log.error("Failed to read a fallback-queue entry, skipping: {}", e.getMessage());

@@ -74,6 +74,21 @@ class KafkaEventPublisherTest {
     }
 
     @Test
+    void aSynchronousThrowFromSendIsQueuedForRetryEvenAsTheRawKafkaClientException() {
+        // Regression pin: producer construction failing outright (e.g. bootstrap.servers can't
+        // resolve at all) throws org.apache.kafka.common.KafkaException synchronously from
+        // send() itself, NOT org.springframework.kafka.KafkaException — catching only the Spring
+        // wrapper type let this exact failure mode escape uncaught to the caller instead of
+        // queuing, silently defeating the whole fallback queue for this failure class.
+        when(kafkaTemplate.send(anyString(), anyString(), anyString()))
+                .thenThrow(new org.apache.kafka.common.KafkaException("Failed to construct kafka producer"));
+
+        publisher.publish("topic", "key", Map.of("a", "b"));
+
+        assertThat(publisher.fallbackQueueSize()).isEqualTo(1);
+    }
+
+    @Test
     void drainRetriesQueuedEventAndClearsOnSuccess() {
         when(kafkaTemplate.send(anyString(), anyString(), anyString()))
                 .thenReturn(failedSend())

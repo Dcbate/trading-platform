@@ -73,6 +73,10 @@ public class KafkaConfig {
         factory.setConsumerFactory(consumerFactory());
         factory.setBatchListener(true);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.BATCH);
+        // See KafkaListenerStartupRunner — containers connect once Kafka is actually reachable
+        // instead of auto-starting during context refresh, where a broker outage would otherwise
+        // fail application startup entirely.
+        factory.setAutoStartup(false);
         return factory;
     }
 
@@ -85,6 +89,7 @@ public class KafkaConfig {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
+        factory.setAutoStartup(false);
         return factory;
     }
 
