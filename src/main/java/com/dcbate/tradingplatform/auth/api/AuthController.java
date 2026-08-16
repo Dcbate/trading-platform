@@ -67,8 +67,9 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    @Operation(summary = "Clear the session cookies")
-    public ResponseEntity<Void> logout() {
+    @Operation(summary = "Revoke the refresh token and clear the session cookies")
+    public ResponseEntity<Void> logout(@CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken) {
+        authService.logout(refreshToken);
         HttpHeaders headers = new HttpHeaders();
         headers.add(HttpHeaders.SET_COOKIE, clearCookie(ACCESS_COOKIE).toString());
         headers.add(HttpHeaders.SET_COOKIE, clearCookie(REFRESH_COOKIE).toString());

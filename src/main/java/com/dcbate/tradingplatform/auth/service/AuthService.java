@@ -18,4 +18,7 @@ public interface AuthService {
 
     /** Redeems a refresh token exactly once: the redeemed row is revoked and a new pair is issued (rotation), so reusing an old refresh token fails outright. */
     TokenPair refresh(String refreshToken);
+
+    /** Best-effort revocation of the presented refresh token; never throws — a missing, expired, or already-revoked token simply has nothing left to revoke. */
+    void logout(String refreshToken);
 }

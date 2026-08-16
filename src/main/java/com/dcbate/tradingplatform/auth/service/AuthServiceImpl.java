@@ -95,6 +95,23 @@ public class AuthServiceImpl implements AuthService {
         return issueTokens(user.getUserId().toString(), user.getEmail());
     }
 
+    @Override
+    @Transactional
+    public void logout(String refreshToken) {
+        if (refreshToken == null) {
+            return;
+        }
+        try {
+            UUID tokenId = jwtIssuer.verifyRefreshToken(refreshToken);
+            refreshTokenRepository.findByTokenIdAndRevokedFalse(tokenId).ifPresent(stored -> {
+                stored.setRevoked(true);
+                refreshTokenRepository.save(stored);
+            });
+        } catch (InvalidRefreshTokenException e) {
+            // Already expired/unknown/malformed — nothing left to revoke, logout still succeeds.
+        }
+    }
+
     private TokenPair issueTokens(String clientId, String email) {
         Instant accessExpiresAt = Instant.now().plus(Duration.ofMinutes(accessTokenTtlMinutes));
         Instant refreshExpiresAt = Instant.now().plus(Duration.ofDays(refreshTokenTtlDays));

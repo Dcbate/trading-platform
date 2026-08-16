@@ -48,7 +48,12 @@ public class OrderController {
         return ResponseEntity.created(URI.create("/v1/orders/" + response.orderId())).body(response);
     }
 
-    @GetMapping("/{orderId}")
+    // The UUID-shaped constraint isn't just documentation: without it, this pattern also matches
+    // literal path segments like "stream", which shadows WebSocketConfig's /v1/orders/stream
+    // handler — RequestMappingHandlerMapping is checked before the WebSocket handler mapping, so
+    // an unconstrained {orderId} here silently swallows every WebSocket upgrade attempt and routes
+    // it to this method instead, which then fails trying to parse "stream" as a UUID.
+    @GetMapping("/{orderId:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}")
     @PreAuthorize("hasAnyRole('TRADER', 'CLIENT', 'ADMIN', 'AUDITOR', 'COMPLIANCE_OFFICER')")
     @Operation(summary = "Look up an order by id")
     public ResponseEntity<OrderResponse> getOrder(@PathVariable UUID orderId, Authentication authentication) {

@@ -1,9 +1,12 @@
 package com.dcbate.tradingplatform.kafka;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.queue.ChronicleQueue;
+import net.openhft.chronicle.queue.ExcerptAppender;
+import net.openhft.chronicle.queue.ExcerptTailer;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -14,11 +17,11 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * Thin JSON-over-Kafka publisher shared by every producer in the platform. A failed send is
- * queued in a bounded, in-memory buffer and retried on a schedule — a single-instance safety net
- * for a transient Kafka outage, not a durable store: queued events are lost on restart, and a
- * multi-instance deployment would need this backed by something shared (Redis, a local disk
- * spool) instead. When the buffer itself fills up, the oldest-style behavior is to drop and log
- * loudly rather than block the caller or grow unbounded.
+ * durably queued (Chronicle Queue — see {@code ChronicleQueueConfig.kafkaFallbackQueue}) and
+ * retried on a schedule — a safety net for a transient Kafka outage that survives an app restart,
+ * unlike an in-memory buffer. Still single-instance: a multi-instance deployment would need this
+ * backed by something shared (Redis, a distributed queue) instead, since each instance only drains
+ * its own local queue file.
  */
 @Slf4j
 @Component
@@ -26,17 +29,26 @@ public class KafkaEventPublisher {
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
-    private final BlockingQueue<PendingRecord> fallbackQueue;
+    private final ChronicleQueue fallbackQueue;
+    private final ExcerptTailer fallbackTailer;
+    private final int maxDrainPerCycle;
+    private final AtomicLong pendingCount = new AtomicLong();
 
     public KafkaEventPublisher(
             KafkaTemplate<String, String> kafkaTemplate,
             ObjectMapper objectMapper,
+            @Qualifier("kafkaFallbackQueue") ChronicleQueue fallbackQueue,
             MeterRegistry meterRegistry,
-            @Value("${kafka.fallback-queue.capacity:10000}") int fallbackQueueCapacity) {
+            @Value("${kafka.fallback-queue.max-drain-per-cycle:1000}") int maxDrainPerCycle) {
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
-        this.fallbackQueue = new LinkedBlockingQueue<>(fallbackQueueCapacity);
-        meterRegistry.gauge("kafka.fallback.queue.size", fallbackQueue, BlockingQueue::size);
+        this.fallbackQueue = fallbackQueue;
+        // A named tailer persists its read position to disk alongside the queue itself, so a
+        // restart mid-outage resumes draining from exactly where it left off instead of re-reading
+        // (or losing track of) whatever was already queued.
+        this.fallbackTailer = fallbackQueue.createTailer("kafka-fallback-consumer");
+        this.maxDrainPerCycle = maxDrainPerCycle;
+        meterRegistry.gauge("kafka.fallback.queue.size", pendingCount, AtomicLong::get);
     }
 
     public void publish(String topic, String key, Object event) {
@@ -67,21 +79,29 @@ public class KafkaEventPublisher {
     }
 
     private void enqueueForRetry(String topic, String key, String payload) {
-        if (!fallbackQueue.offer(new PendingRecord(topic, key, payload))) {
-            log.error("Fallback queue full (capacity reached); dropping event for topic={} key={}", topic, key);
+        try {
+            String serialized = objectMapper.writeValueAsString(new PendingRecord(topic, key, payload));
+            try (ExcerptAppender appender = fallbackQueue.createAppender()) {
+                appender.writeText(serialized);
+            }
+            pendingCount.incrementAndGet();
+        } catch (Exception e) {
+            // A durable-queue write failure (e.g. disk full) must never propagate: this already
+            // runs on the Kafka producer's callback thread or the scheduled drain thread, and
+            // either one dying silently cancels all its future work until the app is restarted.
+            log.error("Failed to durably queue event for retry, topic={} key={}: {}", topic, key, e.getMessage());
         }
     }
 
     /**
-     * Retries whatever the fallback queue held at the start of this run. Only that many items are
-     * drained per cycle — anything re-queued by a retry that fails again waits for the next cycle,
-     * so a persistent outage can't spin this into a tight loop.
+     * Retries up to {@code maxDrainPerCycle} entries per run — a persistent outage re-queues
+     * failures (via {@link #enqueueForRetry}) rather than blocking here, so it can't spin this
+     * into a tight loop; anything past the cap waits for the next cycle.
      */
     @Scheduled(fixedDelayString = "${kafka.fallback-queue.drain-interval-ms:5000}")
     public void drainFallbackQueue() {
-        int attemptsThisCycle = fallbackQueue.size();
-        for (int i = 0; i < attemptsThisCycle; i++) {
-            PendingRecord pending = fallbackQueue.poll();
+        for (int i = 0; i < maxDrainPerCycle; i++) {
+            PendingRecord pending = readNext();
             if (pending == null) {
                 return;
             }
@@ -89,8 +109,22 @@ public class KafkaEventPublisher {
         }
     }
 
-    public int fallbackQueueSize() {
-        return fallbackQueue.size();
+    private PendingRecord readNext() {
+        try {
+            String payload = fallbackTailer.readText();
+            if (payload == null) {
+                return null;
+            }
+            pendingCount.decrementAndGet();
+            return objectMapper.readValue(payload, PendingRecord.class);
+        } catch (Exception e) {
+            log.error("Failed to read a fallback-queue entry, skipping: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    public long fallbackQueueSize() {
+        return pendingCount.get();
     }
 
     private record PendingRecord(String topic, String key, String payload) {

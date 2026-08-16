@@ -58,6 +58,9 @@ app:
     # AuthController sets access_token/refresh_token as Secure cookies by default — requires
     # HTTPS, which is why the dev profile flips this to false for plain-http local curl testing.
     cookie-secure: true
+    # Scopes WebSocketConfig's /v1/orders/stream handler to the real frontend origin(s) instead of
+    # "*" — comma-separated for multi-origin deployments (e.g. staging + production hostnames).
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:5173}
 
 server:
   port: 8080
@@ -100,6 +103,8 @@ springdoc:
 chronicle:
   trade-journal:
     path: ${CHRONICLE_PATH:./chronicle-data/trades}
+  kafka-fallback:
+    path: ${CHRONICLE_KAFKA_FALLBACK_PATH:./chronicle-data/kafka-fallback}
 
 trading:
   currency-pairs: EUR/USD,GBP/USD,USD/JPY,USD/CHF,AUD/USD
@@ -163,10 +168,11 @@ kafka:
     transfers: transfers
     loans: loans
   fallback-queue:
-    # Single-instance, in-memory safety net for a transient Kafka outage — see
-    # KafkaEventPublisher's javadoc. Not a durable store.
-    capacity: 10000
+    # Single-instance safety net for a transient Kafka outage, backed by a Chronicle Queue file
+    # (chronicle.kafka-fallback.path) so a queued event survives an app restart — see
+    # KafkaEventPublisher's javadoc.
     drain-interval-ms: 5000
+    max-drain-per-cycle: 1000
 
 logging:
   pattern:

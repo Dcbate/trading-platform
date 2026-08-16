@@ -22,6 +22,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.client.RestTestClient;
@@ -37,9 +38,11 @@ import org.testcontainers.utility.DockerImageName;
  * chain: a client's token can only see/act on their own accounts. Unlike the other integration
  * tests, this one deliberately does NOT activate the {@code dev} profile, so
  * {@code SecurityConfig.jwtSecurityFilterChain} and {@code CallerPrincipal}'s ownership checks
- * are both actually exercised, not bypassed.
+ * are both actually exercised, not bypassed. Activates {@code test} (distinct from {@code dev})
+ * solely so {@code JwtIssuer}'s insecure-default guard permits the well-known local secret below.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test")
 @Testcontainers
 class AccountSecurityIntegrationTest {
 

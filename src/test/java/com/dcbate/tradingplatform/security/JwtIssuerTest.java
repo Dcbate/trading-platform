@@ -1,6 +1,7 @@
 package com.dcbate.tradingplatform.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.dcbate.tradingplatform.exception.InvalidRefreshTokenException;
@@ -9,6 +10,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 
 class JwtIssuerTest {
 
@@ -55,5 +57,33 @@ class JwtIssuerTest {
 
         assertThatThrownBy(() -> jwtIssuer.verifyRefreshToken(token))
                 .isInstanceOf(InvalidRefreshTokenException.class);
+    }
+
+    @Test
+    void refusesToStartWithTheInsecureDefaultSecretOutsideDevOrTest() {
+        MockEnvironment prodLikeEnvironment = new MockEnvironment();
+        prodLikeEnvironment.setActiveProfiles("k8s");
+
+        assertThatThrownBy(() -> new JwtIssuer("local-dev-secret-change-me-please-32bytes", "trading-platform", prodLikeEnvironment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET");
+    }
+
+    @Test
+    void allowsTheInsecureDefaultSecretUnderTheDevProfile() {
+        MockEnvironment devEnvironment = new MockEnvironment();
+        devEnvironment.setActiveProfiles("docker", "dev");
+
+        assertThatCode(() -> new JwtIssuer("local-dev-secret-change-me-please-32bytes", "trading-platform", devEnvironment))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void allowsAnyRealSecretRegardlessOfProfile() {
+        MockEnvironment prodLikeEnvironment = new MockEnvironment();
+        prodLikeEnvironment.setActiveProfiles("k8s");
+
+        assertThatCode(() -> new JwtIssuer("a-genuinely-random-production-secret-32b", "trading-platform", prodLikeEnvironment))
+                .doesNotThrowAnyException();
     }
 }

@@ -155,4 +155,35 @@ class AuthServiceImplTest {
         assertThatThrownBy(() -> authService.refresh("reused-jwt"))
                 .isInstanceOf(InvalidRefreshTokenException.class);
     }
+
+    @Test
+    void logoutRevokesTheRefreshToken() {
+        UUID tokenId = UUID.randomUUID();
+        RefreshToken stored = RefreshToken.builder()
+                .tokenId(tokenId).userId(UUID.randomUUID()).expiresAt(Instant.now().plusSeconds(3600)).revoked(false).createdAt(Instant.now())
+                .build();
+        when(jwtIssuer.verifyRefreshToken("current-refresh-jwt")).thenReturn(tokenId);
+        when(refreshTokenRepository.findByTokenIdAndRevokedFalse(tokenId)).thenReturn(Optional.of(stored));
+
+        authService.logout("current-refresh-jwt");
+
+        assertThat(stored.isRevoked()).isTrue();
+        verify(refreshTokenRepository).save(stored);
+    }
+
+    @Test
+    void logoutIsANoOpWhenNoCookieWasPresent() {
+        authService.logout(null);
+
+        verify(refreshTokenRepository, org.mockito.Mockito.never()).findByTokenIdAndRevokedFalse(any());
+    }
+
+    @Test
+    void logoutSucceedsSilentlyForAnAlreadyExpiredOrMalformedToken() {
+        when(jwtIssuer.verifyRefreshToken("garbage")).thenThrow(new InvalidRefreshTokenException("malformed token"));
+
+        authService.logout("garbage");
+
+        verify(refreshTokenRepository, org.mockito.Mockito.never()).save(any());
+    }
 }

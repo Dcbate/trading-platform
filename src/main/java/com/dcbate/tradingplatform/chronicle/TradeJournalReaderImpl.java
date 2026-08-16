@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.queue.ChronicleQueue;
 import net.openhft.chronicle.queue.ExcerptTailer;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -23,6 +24,7 @@ import tools.jackson.databind.ObjectMapper;
 @RequiredArgsConstructor
 public class TradeJournalReaderImpl implements TradeJournalReader {
 
+    @Qualifier("tradeJournalQueue")
     private final ChronicleQueue tradeJournalQueue;
     private final ObjectMapper objectMapper;
 

@@ -10,6 +10,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.NoHandlerFoundException;
 
 /** Central mapping from domain exceptions to HTTP status codes, shared by every controller. */
 @Slf4j
@@ -45,6 +46,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({InvalidCredentialsException.class, InvalidRefreshTokenException.class})
     public ResponseEntity<ApiError> handleUnauthorized(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.UNAUTHORIZED, List.of(e.getMessage()), request);
+    }
+
+    // Without this, a request to a URL with no matching route at all falls through to the generic
+    // Exception handler below and comes back as a 500 — misleading, since nothing actually broke.
+    @ExceptionHandler(NoHandlerFoundException.class)
+    public ResponseEntity<ApiError> handleNoRouteMatched(NoHandlerFoundException e, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, List.of("No such endpoint: " + e.getHttpMethod() + " " + e.getRequestURL()), request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

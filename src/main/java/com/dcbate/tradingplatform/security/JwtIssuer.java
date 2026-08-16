@@ -12,7 +12,10 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 /**
@@ -24,12 +27,31 @@ import org.springframework.stereotype.Component;
 @Component
 public class JwtIssuer {
 
+    /** application.yml's {@code jwt.secret} fallback — fine for local dev/tests, never for a real deployment. */
+    private static final String INSECURE_DEFAULT_SECRET = "local-dev-secret-change-me-please-32bytes";
+
     private final byte[] secretBytes;
     private final String issuer;
 
-    public JwtIssuer(@Value("${jwt.secret}") String secret, @Value("${jwt.issuer}") String issuer) {
+    @Autowired
+    public JwtIssuer(@Value("${jwt.secret}") String secret, @Value("${jwt.issuer}") String issuer, Environment environment) {
+        this(rejectInsecureDefaultOutsideDevOrTest(secret, environment), issuer);
+    }
+
+    JwtIssuer(String secret, String issuer) {
         this.secretBytes = secret.getBytes(StandardCharsets.UTF_8);
         this.issuer = issuer;
+    }
+
+    // Fails app startup outright rather than silently signing real tokens with a secret that's
+    // sitting in plaintext in application.yml — a deployment that forgets to set JWT_SECRET would
+    // otherwise run "successfully" with forgeable auth.
+    private static String rejectInsecureDefaultOutsideDevOrTest(String secret, Environment environment) {
+        if (INSECURE_DEFAULT_SECRET.equals(secret) && !environment.acceptsProfiles(Profiles.of("dev", "test"))) {
+            throw new IllegalStateException(
+                    "jwt.secret is still the insecure default outside the dev/test profiles — set the JWT_SECRET environment variable before starting.");
+        }
+        return secret;
     }
 
     /** An access token: {@code sub}=clientId, {@code roles} claim the resource server reads authorities from. */

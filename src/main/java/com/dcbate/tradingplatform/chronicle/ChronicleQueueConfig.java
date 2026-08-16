@@ -5,7 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Wires the single {@link ChronicleQueue} instance the trade journal reader/writer share. */
+/** Wires the {@link ChronicleQueue} instances the trade journal and the Kafka fallback queue each use. */
 @Configuration
 public class ChronicleQueueConfig {
 
@@ -16,6 +16,16 @@ public class ChronicleQueueConfig {
      */
     @Bean(destroyMethod = "close")
     public ChronicleQueue tradeJournalQueue(@Value("${chronicle.trade-journal.path}") String path) {
+        return ChronicleQueue.single(path);
+    }
+
+    /**
+     * Separate queue file from {@link #tradeJournalQueue} — unrelated data, kept as its own
+     * physical log rather than conflated into one stream. Backs {@code KafkaEventPublisher}'s
+     * fallback path, so a queued event survives an app restart instead of being lost in-memory.
+     */
+    @Bean(destroyMethod = "close")
+    public ChronicleQueue kafkaFallbackQueue(@Value("${chronicle.kafka-fallback.path}") String path) {
         return ChronicleQueue.single(path);
     }
 }

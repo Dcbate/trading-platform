@@ -36,22 +36,32 @@ public class KafkaConsumerLagMetrics {
             "risk-service", "matching-engine", "execution-service",
             "fraud-detection-service", "settlement-service", "notification-service");
 
-    private final AdminClient adminClient;
+    private final String bootstrapServers;
     private final AtomicLong totalLag = new AtomicLong();
+    // Lazy, like McpToolClient: AdminClient.create() resolves bootstrap.servers eagerly and
+    // throws if DNS can't resolve it yet — constructing it here instead of in the constructor
+    // means a Kafka outage at app-startup time degrades this one gauge, not the whole app.
+    private volatile AdminClient adminClient;
 
     public KafkaConsumerLagMetrics(@Value("${spring.kafka.bootstrap-servers}") String bootstrapServers, MeterRegistry meterRegistry) {
-        Properties props = new Properties();
-        props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        this.adminClient = AdminClient.create(props);
+        this.bootstrapServers = bootstrapServers;
         meterRegistry.gauge("kafka.consumer.lag", totalLag);
     }
 
     @Scheduled(fixedDelayString = "${kafka.consumer-lag.poll-interval-ms:10000}")
     public void refresh() {
+        AdminClient client;
+        try {
+            client = connectedClient();
+        } catch (Exception e) {
+            log.debug("Kafka admin client unavailable, skipping this consumer-lag poll: {}", e.getMessage());
+            return;
+        }
+
         long lag = 0;
         for (String groupId : CONSUMER_GROUPS) {
             try {
-                lag += lagForGroup(groupId);
+                lag += lagForGroup(client, groupId);
             } catch (Exception e) {
                 log.debug("Could not compute Kafka lag for consumer group {}: {}", groupId, e.getMessage());
             }
@@ -59,8 +69,19 @@ public class KafkaConsumerLagMetrics {
         totalLag.set(lag);
     }
 
-    private long lagForGroup(String groupId) throws Exception {
-        Map<TopicPartition, OffsetAndMetadata> committed = adminClient.listConsumerGroupOffsets(groupId)
+    private synchronized AdminClient connectedClient() {
+        AdminClient client = adminClient;
+        if (client == null) {
+            Properties props = new Properties();
+            props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+            client = AdminClient.create(props);
+            adminClient = client;
+        }
+        return client;
+    }
+
+    private long lagForGroup(AdminClient client, String groupId) throws Exception {
+        Map<TopicPartition, OffsetAndMetadata> committed = client.listConsumerGroupOffsets(groupId)
                 .partitionsToOffsetAndMetadata().get(5, java.util.concurrent.TimeUnit.SECONDS);
         if (committed.isEmpty()) {
             return 0;
@@ -69,7 +90,7 @@ public class KafkaConsumerLagMetrics {
         Map<TopicPartition, OffsetSpec> endOffsetRequests = committed.keySet().stream()
                 .collect(java.util.stream.Collectors.toMap(tp -> tp, tp -> OffsetSpec.latest()));
         Map<TopicPartition, ListOffsetsResult.ListOffsetsResultInfo> endOffsets =
-                adminClient.listOffsets(endOffsetRequests).all().get(5, java.util.concurrent.TimeUnit.SECONDS);
+                client.listOffsets(endOffsetRequests).all().get(5, java.util.concurrent.TimeUnit.SECONDS);
 
         long groupLag = 0;
         for (Map.Entry<TopicPartition, OffsetAndMetadata> entry : committed.entrySet()) {
@@ -84,6 +105,9 @@ public class KafkaConsumerLagMetrics {
 
     @PreDestroy
     public void close() {
-        adminClient.close(Duration.ofSeconds(5));
+        AdminClient client = adminClient;
+        if (client != null) {
+            client.close(Duration.ofSeconds(5));
+        }
     }
 }

@@ -94,6 +94,16 @@ class OrderControllerTest {
     }
 
     @Test
+    void getOrderRouteDoesNotSwallowTheWebSocketStreamPath() throws Exception {
+        // WebSocketConfig registers /v1/orders/stream separately — an unconstrained {orderId}
+        // path variable here would match "stream" as a literal segment and shadow that handler
+        // (RequestMappingHandlerMapping is checked before the WebSocket handler mapping), so this
+        // pins the fix: the UUID-shaped constraint must leave "stream" genuinely unmatched.
+        mockMvc.perform(get("/v1/orders/stream").principal(clientAuth("client-1")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void listOrdersReturnsOk() throws Exception {
         when(orderService.listOrdersForClient(eq("client-1"), any())).thenReturn(java.util.List.of());
 
