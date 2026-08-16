@@ -97,12 +97,6 @@ springdoc:
   api-docs:
     path: /v1/api-docs
 
-gemini:
-  api-key: ${GEMINI_API_KEY:placeholder-set-me}
-  api-url: https://generativelanguage.googleapis.com
-  model: gemini-2.0-flash
-  timeout-ms: 2000
-
 chronicle:
   trade-journal:
     path: ${CHRONICLE_PATH:./chronicle-data/trades}

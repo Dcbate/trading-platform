@@ -175,3 +175,33 @@ anyone who wants that history to actually persist.
 - No "Share" button — nothing real to share to.
 - No literal leverage multiplier or margin-call liquidation (see §2).
 - No global/social leaderboard (see §6).
+
+## 9. AI-written debrief
+
+`GET /v1/game/sessions/{sessionId}/debrief` (`GameServiceImpl.getDebrief`) is only available once a
+session has ended — a 409 (`GameSessionStillInProgressException`) otherwise, since "why did you
+win/lose" isn't a meaningful question to ask mid-session. It returns two things: a short written
+debrief and a per-symbol P&L breakdown (`GameSymbolPerformanceResponse`, aggregated from
+`GameTrade.realizedPnl` for closed positions and a live unrealized calculation for whatever's still
+held) — the frontend's `EndScreen` charts the latter as horizontal red/green bars ("biggest gains
+and losses"), and shows the former as plain text.
+
+The write-up itself follows the exact same interface pattern already used for anomaly enrichment
+(`AnthropicAnomalyDetector`) and payment-outcome summaries (`AnthropicClaudeSummarizer`) — a third,
+independent AI integration, not a special case:
+
+- `ai/GameCoach` (interface) → `ai/AnthropicGameCoach` (real implementation), sharing the same
+  `claudeWebClient` bean and `claude.*` config as the payment summarizer, just a different prompt
+  and a longer response (400 tokens vs. 200 — a debrief is a few sentences of analysis, not a
+  one-line notification).
+- The full session narrative handed to Claude — the difficulty's rules (goal, starting cash, time
+  limit, the per-minute loan interest rate), the outcome, every trade in order, every loan taken,
+  and the final per-symbol P&L — is built in `GameServiceImpl.buildNarrative`, so the model is
+  grounded in Game Mode's actual rules rather than guessing what "won" or "loan interest" means
+  here.
+- If `CLAUDE_API_KEY` isn't configured (or the call fails), `debrief.aiGenerated` comes back
+  `false` and `summary` is a plain rule-based paragraph computed from the same data
+  (`GameServiceImpl.buildFallbackSummary` — best/worst position, final net worth vs. goal, whether
+  loans dragged the score down) rather than an empty state. The frontend shows a small "AI-written"
+  badge only when `aiGenerated` is true, so a fallback debrief never claims to be something it
+  isn't.

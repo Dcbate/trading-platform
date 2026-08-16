@@ -262,7 +262,7 @@ covered and what isn't, and why.
 
 JWT resource-server auth (HS256), `@PreAuthorize` role checks
 (`CLIENT`/`TRADER`/`ADMIN`/`AUDITOR`/`COMPLIANCE_OFFICER`) on every endpoint including the payment
-and account APIs, no secrets committed (`JWT_SECRET`/`GEMINI_API_KEY`/`CLAUDE_API_KEY` via env vars
+and account APIs, no secrets committed (`JWT_SECRET`/`CLAUDE_API_KEY` via env vars
 with local-only placeholders). On top of role checks, every account/payment/transfer/loan endpoint
 enforces **object-level ownership** via `CallerPrincipal` (§3a) — a `CLIENT` token can never see or
 move another client's money, and I proved that end to end with

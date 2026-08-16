@@ -61,9 +61,9 @@ flowchart LR
 **The fraud check, and where AI fits in:** three plain rule checks run first — is this client
 sending payments unusually fast, did their country change too quickly, is this amount way outside
 their normal pattern? Those three rules alone decide whether a payment is clean, held for review,
-or blocked. I only ask an AI model (Gemini) to *write a one-sentence explanation* of why something
+or blocked. I only ask an AI model (Claude) to *write a one-sentence explanation* of why something
 got flagged, after that decision is already made. I did it this way on purpose: I didn't want a
-third-party API outage to be able to change whether money moves. If Gemini is slow or unreachable,
+third-party API outage to be able to change whether money moves. If Claude is slow or unreachable,
 the payment's fate doesn't change at all — only the explanation text falls back to a plain rule
 description instead of an AI sentence. The rules decide; the AI just narrates.
 
@@ -123,7 +123,7 @@ and I'd rather tell you exactly which than have you find out the hard way:
 | Piece | Status |
 |---|---|
 | Fraud rules, ledger, saga, ownership security, interest math, order matching | **Real** — genuine logic, not mocked |
-| Gemini / Claude AI calls | **Real** API calls to the real services (with a safe fallback if no key is configured) — see above |
+| Claude AI calls | **Real** API calls to the real service (with a safe fallback if no key is configured) — see above |
 | Email / Slack notifications | **Simulated** — logged, not sent to a real provider |
 | The "other bank" a payment clears against | **Simulated** — a deterministic stand-in (fails above $500k, on purpose, so both outcomes are testable) |
 | FX market prices | **Simulated** — a randomized walk, not a real market feed |
@@ -246,8 +246,8 @@ flowchart LR
     Exec -->|push update| WS((WebSocket /v1/orders/stream))
     Feed[Price Feed Service] -->|PriceUpdateEvent| T5[[prices]]
     Feed -->|cache| Redis[(Redis)]
-    Risk -.->|anomaly enrichment| Gemini[Gemini API]
-    Feed -.->|anomaly enrichment| Gemini
+    Risk -.->|anomaly enrichment| Claude[Claude API]
+    Feed -.->|anomaly enrichment| Claude
 ```
 
 ```mermaid
@@ -267,8 +267,8 @@ flowchart LR
     Notify -->|retry 1s..16s, DLQ on exhaustion| T6[[notifications-dlq]]
     Recon[Reconciliation Scheduler] -->|checks debits=credits| DB
     Recon -->|NotificationEvent| T5
-    Fraud -.->|enrichment| Gemini[Gemini API]
-    Notify -.->|summary for failures| Claude[Claude API]
+    Fraud -.->|enrichment| Claude[Claude API]
+    Notify -.->|summary for failures| Claude
 ```
 
 ### Components & responsibilities
@@ -302,8 +302,7 @@ decision I made, why I made it, and what I gave up by making it.
 | Raw `KafkaConsumer` poll loop for the Matching Engine instead of `@KafkaListener` | Keeps the hot path free of listener-container overhead, matches the batch-poll pattern directly | More manual lifecycle code than a declarative listener |
 | Thread affinity (CPU pinning) implemented but disabled by default | Needs a native JNI library, not portable across every dev machine/container | Sub-5ms matching latency claim is unverified without it enabled and benchmarked |
 | Synthetic price feed instead of a real market data integration | No real feed exists | Anomaly detection triggers on synthetic data, not real market events |
-| Gemini API wired for real, but purely advisory | Rule-based checks (threshold, velocity) already gate correctness; AI enrichment is a "why" narrative, not a decision-maker | If `GEMINI_API_KEY` is unset, alerts still fire — just without the AI-written explanation |
-| Claude API wired for real, but purely advisory | Same reasoning as Gemini, for notification summaries | If `CLAUDE_API_KEY` is unset, notifications still send with the plain reason text |
+| Claude API wired for real (fraud/anomaly enrichment, notification summaries, Game Mode debrief), but purely advisory | Rule-based checks (threshold, velocity) already gate correctness; AI enrichment is a "why" narrative, not a decision-maker | If `CLAUDE_API_KEY` is unset, alerts and notifications still fire — just without the AI-written explanation |
 | `SettlementService` is a saga orchestrator, not choreographed via extra Kafka hops | Keeps the compensation logic in one reviewable place instead of spread across consumers | Differs from a literal reading of the spec's separate "Ledger Service consumes payment events" |
 | `SimulatedBankClearingClient` deterministically fails above a configurable amount | No real bank gateway exists; this is a test seam so compensation is actually exercised, not a business rule | The threshold is arbitrary, not a real risk limit |
 | Email/Slack are logging stand-ins that never fail | No real provider exists to fail against; a contrived failure condition would be worse than an honest stand-in | Retry/DLQ wiring is proven correct by unit test (exception propagation), not by an end-to-end failure in practice |
@@ -339,7 +338,7 @@ infrastructure are in the same doc.
 | Bank clearing fails | Ledger entries reversed, payment marked `FAILED`, customer notified with the reason — see [docs/PAYMENT_SYSTEM.md](docs/PAYMENT_SYSTEM.md) |
 | A payment is flagged `UNDER_REVIEW` | Held until a `COMPLIANCE_OFFICER` calls `POST /v1/payments/{id}/approve` or `/reject` |
 | Notification delivery fails | Retried at 1s/2s/4s/8s/16s; exhausted retries land on `notifications-dlq`, recorded `DEAD_LETTERED` |
-| Gemini/Claude API unavailable or unset | Alerts and notifications still fire using the plain rule-based reason; AI enrichment is skipped, never required |
+| Claude API unavailable or unset | Alerts and notifications still fire using the plain rule-based reason; AI enrichment is skipped, never required |
 | Redis unavailable | Price feed falls back to the last known seed price per currency pair; trading itself doesn't depend on Redis; FX conversion fails with `RateUnavailableException` if no rate is cached |
 | A client's token is used against another client's account/payment/transfer/loan | `AccessDeniedException` → 403 — see [docs/ACCOUNTS.md](docs/ACCOUNTS.md#3-ownership-security) |
 | Kafka topic metadata not yet cached for a fresh topic | Producer send is capped at 3s (not Kafka's 60s default) and falls back to the same retry queue as a broker outage — a real bug I found and fixed, see [docs/KAFKA_SETUP.md](docs/KAFKA_SETUP.md) |
@@ -381,7 +380,7 @@ Swagger UI: `/v1/swagger-ui/index.html`. OpenAPI JSON: `/v1/api-docs`.
   cookies, never `localStorage` — with bcrypt-hashed passwords and one-time-use refresh-token
   rotation; see [What's real and what's simulated](#whats-real-and-what-simulated) for what's not
   built yet (a real OAuth2/OIDC IdP).
-  No secrets are committed; `JWT_SECRET`, `GEMINI_API_KEY`, and `CLAUDE_API_KEY` are environment
+  No secrets are committed; `JWT_SECRET` and `CLAUDE_API_KEY` are environment
   variables with local-only placeholder defaults.
 
 ### Test coverage — stated honestly
@@ -390,9 +389,9 @@ Unit tests cover every service's business logic (mocked dependencies) plus the o
 algorithm directly. One Testcontainers integration test proves the ownership-security check through
 the *real* JWT filter chain (`AccountSecurityIntegrationTest`: a client's token gets a genuine 403
 reading another client's account) against real Kafka/Postgres/Redis. I'm not going to claim this is
-100% line coverage or a verified SonarQube grade, because it isn't. Known gaps: the Gemini/Claude
-APIs' success paths (the failure/fallback path *is* tested for both — mocking WebFlux's fluent
-client reliably for the success case felt disproportionate to the payoff), `@PreAuthorize` role
+100% line coverage or a verified SonarQube grade, because it isn't. Known gaps: the Claude API's
+success paths (the failure/fallback path *is* tested — mocking WebFlux's fluent client reliably
+for the success case felt disproportionate to the payoff), `@PreAuthorize` role
 enforcement itself (controller unit tests bypass Spring Security entirely by design — only the
 ownership-check layer on top of it is proven end-to-end), and two Testcontainers-based end-to-end
 pipeline tests (order→trade, payment→settlement) I removed after they proved flaky specifically in

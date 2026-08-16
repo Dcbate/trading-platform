@@ -74,7 +74,7 @@ throughout the codebase (not just JVM/HTTP defaults):
 
 - `transfer_latency_seconds_{bucket,count,sum,max}` — from `TransferServiceImpl`
 - `fraud_detection_latency_seconds_{bucket,count,sum,max}` — from `FraudDetectionServiceImpl`
-  (wraps the real Gemini API call; **p99 = 324ms** at time of writing, queried directly:
+  (wraps the real Claude API call; **p99 = 324ms** at time of writing, queried directly:
   `histogram_quantile(0.99, rate(fraud_detection_latency_seconds_bucket[5m]))` → `0.3242...`)
 - `payment_settlement_outcome_total{outcome="SETTLED"}` — currently `2` (two real payments I
   submitted and settled during this verification)

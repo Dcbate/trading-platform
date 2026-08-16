@@ -105,7 +105,7 @@ One thing I deliberately dropped from an earlier draft of the spec: "new card + 
 merchant." There's no card or merchant concept in this domain, and inventing one just to satisfy a
 rule that wouldn't mean anything here felt worse than just not having it.
 
-On any flag, `AnomalyDetector` (the same Gemini-backed component the Risk Service uses — see
+On any flag, `AnomalyDetector` (the same Claude-backed component the Risk Service uses — see
 `ai/AnomalyDetector.java`) enriches the rule's plain-text reason with an AI severity assessment,
 purely advisory: the rule already decided BLOCK/REVIEW before the AI call ever happens.
 
@@ -116,5 +116,5 @@ purely advisory: the rule already decided BLOCK/REVIEW before the AI call ever h
 | Fraud/Settlement/Notification service crashes | Kafka retains the record; consumer resumes from last committed offset, nothing lost |
 | Bank clearing fails | Ledger entries reversed, payment `FAILED`, customer notified with the reason |
 | Notification delivery fails | `@RetryableTopic` retries at 1s/2s/4s/8s/16s (5 retries, 6 attempts total); exhausted retries land on `notifications-dlq` and are recorded as `DEAD_LETTERED` for manual review |
-| Gemini/Claude API unavailable or unset | Fraud flags and notifications still work using the rule's plain-text reason; AI enrichment is skipped, never required |
+| Claude API unavailable or unset | Fraud flags and notifications still work using the rule's plain-text reason; AI enrichment is skipped, never required |
 | Reconciliation finds a discrepancy | <$1 auto-resolves (logged); larger discrepancies persist a `ReconciliationAlert` and notify — I never auto-resolve those silently |

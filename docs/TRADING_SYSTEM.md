@@ -86,9 +86,9 @@ either one is enough to reject:
   to move to Redis before this could run behind more than one app instance.
 
 On rejection, I call `AnomalyDetector.explain()` with the rule's plain-text reason — if
-`GEMINI_API_KEY` is configured, the persisted `RiskAlert.reason` gets an AI-written severity
+`CLAUDE_API_KEY` is configured, the persisted `RiskAlert.reason` gets an AI-written severity
 assessment; otherwise it falls back to the rule's own description verbatim. Either way, the order
-is already rejected by that point — I never let Gemini decide the outcome, only narrate it, for
+is already rejected by that point — I never let Claude decide the outcome, only narrate it, for
 the same reason I kept AI out of the payment fraud decision (see
 [PAYMENT_SYSTEM.md §5](PAYMENT_SYSTEM.md#5-fraud-scenarios)): I don't want a third-party API
 outage to be able to change whether an order executes.

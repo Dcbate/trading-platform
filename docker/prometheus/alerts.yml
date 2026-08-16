@@ -27,7 +27,7 @@ groups:
         labels:
           severity: investigate
         annotations:
-          summary: "Fraud detection p99 latency above 2s — check the Gemini API"
+          summary: "Fraud detection p99 latency above 2s — check the Claude API"
 
       - alert: KafkaConsumerLagHigh
         expr: kafka_consumer_lag > 1000

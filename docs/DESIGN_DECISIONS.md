@@ -70,12 +70,12 @@ not a code-complexity problem.
 Prices are seeded from a hardcoded map (EUR/USD ≈ 1.08, GBP/USD ≈ 1.27, etc.) and each 2-second
 tick applies a random percentage move off the previous cached price — normally ±2%, with a 5%
 chance of a ±15% "spike" move, which I added specifically so the anomaly-detection threshold and
-Gemini enrichment path are actually reachable in a demo/test run without waiting for a real market
+Claude enrichment path are actually reachable in a demo/test run without waiting for a real market
 event. No external market data API is called.
 
 **Why:** a real market data subscription (Bloomberg, Refinitiv, a bank's own rate engine) isn't
 something I can integrate into a demo project. What's real is everything downstream of a price
-tick: the Redis cache with TTL, the anomaly-detection rule, the optional Gemini severity enrichment,
+tick: the Redis cache with TTL, the anomaly-detection rule, the optional Claude severity enrichment,
 and the `/v1/accounts/{id}/convert` endpoint using this exact cached rate to move real money between
 two of a client's own accounts.
 
@@ -151,7 +151,8 @@ Everything not listed above: the double-entry ledger, the payment saga (reserve 
 compensate) and its compensating-reversal correctness, ownership-based authorization, the Kafka
 event pipeline end to end (including the fallback queue for broker outages), the risk/fraud rule
 engines, loan interest accrual math, the matching engine, distributed tracing and metrics (see
-`OBSERVABILITY_PROOF.md`), and both AI integrations (`GeminiAnomalyDetector`,
-`AnthropicClaudeSummarizer`) — these make genuine outbound HTTP calls to the real Gemini and
-Anthropic APIs when I've configured a real key, falling back to plain rule-based text (never
-blocking the underlying decision) only when no key is set.
+`OBSERVABILITY_PROOF.md`), and all three AI integrations (`AnthropicAnomalyDetector`,
+`AnthropicClaudeSummarizer`, `AnthropicGameCoach`) — every AI call in the app goes through the
+same Anthropic Claude API now, rather than splitting usage across two providers. Each makes a
+genuine outbound HTTP call when I've configured a real key, falling back to plain rule-based text
+(never blocking the underlying decision) only when no key is set.

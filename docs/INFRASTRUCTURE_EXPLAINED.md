@@ -58,18 +58,22 @@ that's always Postgres.
 
 ## The AI integrations — a second opinion, never the decision-maker
 
-Two places in the app call a real AI model over the internet, but in both cases the AI is only
+Three places in the app call a real AI model over the internet, but in every case the AI is only
 ever adding commentary on top of a decision that's already been made by ordinary code — it never
 makes the decision itself.
 
 - When something unusual happens (an oddly large price jump, unusually fast trading), a rule
-  already decided that it's worth flagging. The app then asks Google's Gemini for one short
-  sentence explaining how serious this looks and why — genuinely useful color, but if Gemini is
+  already decided that it's worth flagging. The app then asks Anthropic's Claude for one short
+  sentence explaining how serious this looks and why — genuinely useful color, but if Claude is
   unreachable or fails, the flag still goes out with a plain, rule-written description instead. The
   system never waits on or depends on the AI to work correctly.
 - When a payment settles, Anthropic's Claude is asked to write a short, friendly one- or
   two-sentence summary of what happened, for a customer-facing notification. Same rule: if it
   fails, the notification still goes out, just with a plainer message.
+- When a Game Mode session ends, Claude is given the difficulty's rules and the full trade/loan
+  history and asked for a few sentences explaining why the player won or lost and which moves
+  helped or hurt most. Same rule again: if it fails or no key is configured, the player still gets
+  a real debrief — a plain paragraph computed from the same data — just not an AI-written one.
 
 ## Watching the bank run — Prometheus, Grafana, and Jaeger
 
@@ -163,22 +167,30 @@ guarantees of the relational store, not a cache.
 
 ## AI integrations
 
-`ai/GeminiAnomalyDetector` (implements `AnomalyDetector`) and
-`ai/AnthropicClaudeSummarizer` (implements `ClaudeSummarizer`) both make genuine outbound HTTP
-calls via `WebClient` when a real API key is configured (`gemini.api-key`/`claude.api-key`,
-checked against a `"placeholder-set-me"` sentinel), with a hard timeout
-(`gemini.timeout-ms`/equivalent) and a try/catch that degrades to a plain rule-based string on any
-failure — timeout, network error, malformed response, or no key configured. Both are wired as the
-*only* implementation of their interface (no toggle/flag), so the fallback path is exercised
-automatically whenever no key is present, which is also what's covered by the unit tests — the
-real-API success path isn't unit tested (mocking WebFlux's reactive chain for it wasn't judged
-worth the payoff relative to a live-verified real call), but the fallback path is.
+`ai/AnthropicAnomalyDetector` (implements `AnomalyDetector`), `ai/AnthropicClaudeSummarizer`
+(implements `ClaudeSummarizer`), and `ai/AnthropicGameCoach` (implements `GameCoach`) all make
+genuine outbound HTTP calls to Anthropic's Messages API via a shared `claudeWebClient` bean when a
+real API key is configured (`claude.api-key`, checked against a `"placeholder-set-me"` sentinel),
+with a hard timeout (`claude.timeout-ms`) and a try/catch that degrades to a plain rule-based string
+on any failure — timeout, network error, malformed response, or no key configured. All three are
+wired as the *only* implementation of their interface (no toggle/flag), so the fallback path is
+exercised automatically whenever no key is present, which is also what's covered by the unit
+tests — the real-API success path isn't unit tested (mocking WebFlux's reactive chain for it wasn't
+judged worth the payoff relative to a live-verified real call), but the fallback path is. Every AI
+call in the app goes through Claude now, rather than splitting usage across two providers — an
+earlier version used Google's Gemini for anomaly enrichment specifically; it was replaced with
+`AnthropicAnomalyDetector` so there's one AI provider, one API key, and one set of failure modes to
+reason about.
 
-`GeminiAnomalyDetector.explain` is called from `FraudDetectionServiceImpl`/`RiskServiceImpl` to
+`AnthropicAnomalyDetector.explain` is called from `FraudDetectionServiceImpl`/`RiskServiceImpl` to
 enrich an already-triggered rule (`fraud_detection_latency_seconds` — real p99 of 324ms measured
 live, see [OBSERVABILITY_PROOF.md](OBSERVABILITY_PROOF.md)) with a one-sentence severity
 assessment. `AnthropicClaudeSummarizer.summarize` is called from the settlement/notification path
-to turn a payment event into a short customer-facing sentence.
+to turn a payment event into a short customer-facing sentence. `AnthropicGameCoach.debrief` is
+called from `GameServiceImpl.getDebrief` once a Game Mode session ends, given the difficulty's
+rules plus the full trade/loan history, to write a few sentences on why the player won or lost —
+see [GAME_MODE.md §9](GAME_MODE.md#9-ai-written-debrief) for the full shape of this one, including
+the per-symbol P&L chart it's paired with on the frontend.
 
 ## Observability: Prometheus, Grafana, Jaeger
 

@@ -64,16 +64,16 @@ of this rather than oversell it: it's single-instance and in-memory, so queued e
 restart, and it doesn't help once there's more than one app instance running. It buys me time
 through a transient outage; it isn't a durable outbox pattern, and I wouldn't claim it is.
 
-### "What if the fraud-detection AI (Gemini) is down?"
+### "What if the fraud-detection AI (Claude) is down?"
 
 Nothing about the fraud decision changes, and I want to be precise here because the obvious-sounding
 answer — "payments get flagged for manual review instead" — is actually wrong for how I built this.
 `FraudDetectionServiceImpl.evaluate()` runs three deterministic rule checks (velocity,
 country-change, amount-anomaly) and decides BLOCKED / UNDER_REVIEW / PASS from those alone.
-`GeminiAnomalyDetector` only gets invoked *after* that decision is already made, purely to generate
-a human-readable explanation string for the record and the notification text. If Gemini times out
-or errors, it falls back to the plain rule-description text — the payment's actual status doesn't
-move either way. I did that on purpose: AI enrichment is cosmetic to the decision here, not
+`AnthropicAnomalyDetector` only gets invoked *after* that decision is already made, purely to
+generate a human-readable explanation string for the record and the notification text. If Claude
+times out or errors, it falls back to the plain rule-description text — the payment's actual status
+doesn't move either way. I did that on purpose: AI enrichment is cosmetic to the decision here, not
 load-bearing, because I didn't want a third-party API outage to be able to change whether money
 moves.
 

@@ -36,7 +36,6 @@ secrets:
   datasourceUsername: "placeholder-set-me"
   datasourcePassword: "placeholder-set-me"
   jwtSecret: "placeholder-set-me"
-  geminiApiKey: "placeholder-set-me"
   claudeApiKey: "placeholder-set-me"
   sendgridApiKey: "placeholder-set-me"
   slackWebhookUrl: "placeholder-set-me"

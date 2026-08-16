@@ -139,8 +139,8 @@ src/main/java/com/dcbate/tradingplatform/
 ├── trading/       Order → Risk → MatchingEngine → Execution → PriceFeed (the FX/stock desk)
 ├── game/          Game Mode — entirely isolated: own tables, own market simulator, no Kafka
 ├── notification/  retry/DLQ delivery via @RetryableTopic
-├── ai/            AnomalyDetector (Gemini) + ClaudeSummarizer (Anthropic) — real API calls, with
-│                  rule-based fallback if no key is configured or the call fails
+├── ai/            AnomalyDetector + ClaudeSummarizer + GameCoach — all three backed by Anthropic
+│                  Claude, real API calls, with rule-based fallback if no key is configured or fails
 ├── chronicle/     off-heap, memory-mapped, zero-GC trade journal
 ├── kafka/         KafkaEventPublisher (+ fallback queue) and every kafka.event.* record
 ├── config/        Kafka, Security, Trading, Chronicle, tracing config
@@ -178,7 +178,7 @@ summary:
 | Piece | Status |
 |---|---|
 | Double-entry ledger, payment saga + compensation, ownership auth, Kafka pipeline + fallback queue, risk/fraud engines, loan interest accrual, matching engine, tracing/metrics | **Real** |
-| Gemini anomaly enrichment / Claude payment summaries | **Real outbound API calls** when a key is configured; rule-based fallback otherwise — never blocks the underlying decision |
+| Claude anomaly enrichment / payment summaries / Game Mode debrief | **Real outbound API calls** when a key is configured; rule-based fallback otherwise — never blocks the underlying decision |
 | Email/Slack delivery | **Logged stand-in** — `LoggingEmailSender`/`LoggingSlackSender`; the retry/DLQ machinery around them is real |
 | Bank clearing (`BankClearingClient`) | **Deterministic stand-in** — payments under a configured threshold always clear, larger ones always fail, so both the settle and compensate paths are exercisable without a real correspondent-bank relationship |
 | FX/stock price feed | **Simulated bounded random walk**, not a real market data subscription |
@@ -193,8 +193,9 @@ tables with the real trading desk, playable without logging in (guest sessions v
 client-generated ID, `/v1/game/**` is `permitAll`). Full detail in
 [GAME_MODE.md](GAME_MODE.md), including why the market uses regime-based price trends rather than
 a pure random walk (a symmetric random walk has zero expected drift, which made every difficulty
-unwinnable), and how loan interest accrues per minute of game time rather than a real annualized
-rate (a real APR is invisible over a 15–30 minute session).
+unwinnable), how loan interest accrues per minute of game time rather than a real annualized
+rate (a real APR is invisible over a 15–30 minute session), and the AI-written end-of-session
+debrief (a third, independent use of the same Claude integration pattern described above).
 
 ## Testing and verification
 

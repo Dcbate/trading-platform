@@ -1,7 +1,7 @@
 package com.dcbate.tradingplatform.ai;
 
 /**
- * {@code aiEnriched=false} means the Gemini call failed or was skipped (e.g. no API key
+ * {@code aiEnriched=false} means the Claude call failed or was skipped (e.g. no API key
  * configured) — {@code explanation} then falls back to the plain rule description. The threshold
  * rule that triggered the check has already run by this point either way, so correctness never
  * depends on this call succeeding.

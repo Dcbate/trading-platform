@@ -59,8 +59,8 @@ public class FraudDetectionServiceImpl implements FraudDetectionService {
     @Override
     @Transactional
     public void evaluate(PaymentEvent event) {
-        // Includes the AnomalyDetector (Gemini) call inside flag() — this is the metric the
-        // "fraud detection latency > 2s -> check Gemini API" alert watches.
+        // Includes the AnomalyDetector (Claude) call inside flag() — this is the metric the
+        // "fraud detection latency > 2s -> check Claude API" alert watches.
         Timer.Sample sample = Timer.start(meterRegistry);
         try {
             Optional<FraudFinding> finding =
