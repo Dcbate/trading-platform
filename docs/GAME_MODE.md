@@ -76,21 +76,46 @@ and checks all three end conditions before anything else happens:
 - **Bankrupt**: `netWorth < 0`
 - **Time's up**: `now >= session.endsAt`
 
-`netWorth = cash + Σ(position.quantity × currentPrice) − Σ(loan.principal + interestOwed)`.
+`netWorth = cash + Σ(position.quantity × currentPrice) − Σ(loan.outstandingPrincipal + interestOwed)`.
 
 This means a client can never "sneak in" a trade after time's actually up by holding a stale
 IN_PROGRESS session open — the server re-derives status from wall-clock time and the live market
 on every call, not from whatever the client's own countdown timer says.
 
-Loan interest is computed the same way: `interestOwed` is simple (non-compounding) interest based
-on elapsed wall-clock seconds since `originatedAt`, computed fresh on every valuation
-(`GameServiceImpl.interestOwed`) rather than accrued and persisted incrementally like the real
-`Loan`'s daily scheduled job (`LoanInterestScheduler`) does. A 15-30 minute session has nothing
-for a scheduled job to catch up on between reads, so it would be pure overhead here.
+### Loan interest — per minute, not annualized
 
-There's also deliberately no loan repayment endpoint in Game Mode — a session is too short for
-"pay it down before the timer runs out" to be a meaningful choice, so a loan's principal plus
-whatever interest has accrued just gets netted out of the final score.
+Early versions computed `GameLoan` interest the same way the real `Loan` does: a true annualized
+rate, accrued continuously from `originatedAt`. That's realistic but useless in a 15-30 minute
+session — a £5,000 loan at 20% APR accrues about 6 pence over an entire game, so the difficulty
+table's `loanRateAnnualPercent` was invisible in practice and taking a loan was effectively free
+money with no downside.
+
+Game Mode now treats the stated rate as **"this percentage of the outstanding principal, per
+minute held"**, not per year — the annualization divisor was removed entirely
+(`GameServiceImpl.pendingInterest`). A £2,000 loan at 5% now accrues £100 for every minute it's
+left unpaid, which is a real, felt tradeoff inside a short session: borrow to trade bigger, but
+the clock is now working against you too.
+
+Because interest actually matters now, it also needs to be repayable rather than just netted out
+at the end — see below. That in turn means a `GameLoan`'s interest can't be computed fresh on
+every read anymore (an outstanding balance can shrink between reads via a partial repayment, so
+"recompute from `originatedAt`" would be wrong). `GameLoan` now tracks `outstandingPrincipal`,
+`accruedInterest`, and `lastAccrualAt`: `interestOwed` = `accruedInterest` (already settled) plus
+`pendingInterest` (computed live from `lastAccrualAt` to now). A repayment first calls
+`settleAccrual` to fold pending interest into `accruedInterest`, then applies the payment —
+interest first, principal second, same order the real `Loan.repay` uses. There's still no
+scheduled job here: settlement only happens lazily, at repayment or when a session ends, not on
+every 5-second poll, since a DB write on every poll for a value nobody's reading yet would be
+pure overhead.
+
+### Repaying a loan
+
+`POST /v1/game/sessions/{sessionId}/loans/{loanId}/repay` (`GameServiceImpl.repayLoan`) accepts
+any positive amount; if it's more than what's actually owed (`outstandingPrincipal +
+interestOwed`), only what's owed is taken — same rule the real loan repayment uses
+(`GameLoanRepayRequest`'s Javadoc). A loan that's fully paid off (`outstandingPrincipal` and
+`accruedInterest` both zero) is filtered out of the session's `loans` list on the next read, so it
+just disappears from the UI rather than lingering as a zero-balance row.
 
 ## 5. Trades
 

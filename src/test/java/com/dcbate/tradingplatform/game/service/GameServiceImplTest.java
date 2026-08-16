@@ -296,10 +296,12 @@ class GameServiceImplTest {
     @Test
     void repayLoanAppliesToInterestFirstThenPrincipal() {
         GameSession active = session(GameDifficulty.TRADER, new BigDecimal("5000"), Instant.now().plusSeconds(600));
+        // Rate is zero so no further interest accrues between loan setup and the repay call below —
+        // isolates the assertion to the interest-then-principal payment ordering itself.
         GameLoan loan = GameLoan.builder()
                 .gameLoanId(UUID.randomUUID()).sessionId(active.getSessionId())
                 .principal(new BigDecimal("2000")).outstandingPrincipal(new BigDecimal("2000"))
-                .accruedInterest(new BigDecimal("300")).rateAnnualPercent(new BigDecimal("8.00"))
+                .accruedInterest(new BigDecimal("300")).rateAnnualPercent(BigDecimal.ZERO)
                 .originatedAt(Instant.now()).lastAccrualAt(Instant.now())
                 .build();
         when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
@@ -322,7 +324,7 @@ class GameServiceImplTest {
         GameLoan loan = GameLoan.builder()
                 .gameLoanId(UUID.randomUUID()).sessionId(active.getSessionId())
                 .principal(new BigDecimal("100")).outstandingPrincipal(new BigDecimal("100"))
-                .accruedInterest(BigDecimal.ZERO).rateAnnualPercent(new BigDecimal("8.00"))
+                .accruedInterest(BigDecimal.ZERO).rateAnnualPercent(BigDecimal.ZERO)
                 .originatedAt(Instant.now()).lastAccrualAt(Instant.now())
                 .build();
         when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));

@@ -4,14 +4,29 @@ import toast from 'react-hot-toast'
 import { Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ArrowLeft, Landmark, PartyPopper, SkullIcon, TimerOff } from 'lucide-react'
 import { apiErrorMessage } from '../api/client'
-import { useGameDifficulties, useGameMarket, useGameSession, useGameTrades, useStartGame, useTakeGameLoan, usePlaceGameTrade } from '../hooks/useGame'
+import {
+  useGameDifficulties,
+  useGameMarket,
+  useGameSession,
+  useGameTrades,
+  useStartGame,
+  useTakeGameLoan,
+  useRepayGameLoan,
+  usePlaceGameTrade,
+} from '../hooks/useGame'
 import { formatCountdown, formatMoney, formatQuantity, sanitizeWholeNumberInput } from '../lib/format'
 import { btnDanger, btnGhost, btnGhostSm, btnPrimary, btnSuccess, card, input, inputSm, label, listSection, sectionTitle } from '../lib/styles'
-import type { GamePriceResponse, GameSessionResponse, GameTradeResponse, OrderSide } from '../types/api'
+import type { GameLoanResponse, GamePriceResponse, GameSessionResponse, GameTradeResponse, OrderSide } from '../types/api'
 
 interface PricePoint {
   time: string
   price: number
+  // Epoch ms when this point was polled — used to match a trade onto the nearest history point.
+  // `time` alone isn't enough for that: it's a local-time-of-day display string, while a trade's
+  // `createdAt` is a server UTC instant, so comparing them directly drifts by the browser's
+  // timezone offset (e.g. every marker would land ~1 hour off in BST) and can even wrap around
+  // midnight incorrectly. Comparing real epoch instants sidesteps both problems.
+  t: number
 }
 
 function GoalProgress({ session }: { session: GameSessionResponse }) {
@@ -68,22 +83,19 @@ function MarketRow({
   )
 }
 
-// Trades are timestamped by the server (ISO instant); history points are timestamped by the
-// browser the moment each poll response arrives, formatted as a plain "HH:MM:SS" string (see the
-// market-tracking effect below) — matching a trade onto the chart means finding whichever history
-// point's clock time is closest to the trade's, then marking the chart at that point's x position
-// (recharts positions a ReferenceDot on a category axis by matching this value against the axis's
-// own categories, not by interpolating between them).
+// Trades are timestamped by the server (ISO instant); history points carry both a display string
+// and the real epoch ms they were polled at (see the market-tracking effect below). Matching a
+// trade onto the chart means finding whichever history point's epoch instant is closest to the
+// trade's, then marking the chart at that point's x position (recharts positions a ReferenceDot
+// on a category axis by matching the display string against the axis's own categories, not by
+// interpolating between them).
 function nearestHistoryTime(tradeCreatedAt: string, history: PricePoint[]): string | undefined {
   if (history.length === 0) return undefined
-  const tradeSeconds = new Date(tradeCreatedAt).getTime() / 1000
+  const tradeMs = new Date(tradeCreatedAt).getTime()
   let closest = history[0]
   let closestDiff = Infinity
   for (const point of history) {
-    const [h, m, s] = point.time.split(':').map(Number)
-    const pointSeconds = h * 3600 + m * 60 + s
-    const tradeTimeOfDay = ((tradeSeconds % 86400) + 86400) % 86400
-    const diff = Math.abs(pointSeconds - tradeTimeOfDay)
+    const diff = Math.abs(point.t - tradeMs)
     if (diff < closestDiff) {
       closestDiff = diff
       closest = point
@@ -203,7 +215,9 @@ function LoanPanel({ sessionId, ratePercent }: { sessionId: string; ratePercent:
           autoFocus
         />
       </div>
-      <p className="text-xs text-ink-400">{ratePercent}% APR, interest counts against your score the whole time it's outstanding.</p>
+      <p className="text-xs text-ink-400">
+        {ratePercent}% of the outstanding balance accrues as interest every minute it's unpaid — repay it any time from "My loans" below.
+      </p>
       <div className="flex gap-2">
         <button
           type="button"
@@ -226,6 +240,86 @@ function LoanPanel({ sessionId, ratePercent }: { sessionId: string; ratePercent:
           Cancel
         </button>
       </div>
+    </div>
+  )
+}
+
+function LoanRepayRow({ sessionId, loan }: { sessionId: string; loan: GameLoanResponse }) {
+  const [amount, setAmount] = useState('')
+  const repay = useRepayGameLoan(sessionId)
+  const totalOwed = loan.outstandingPrincipal + loan.interestOwed
+
+  return (
+    <div className={`${card} flex flex-wrap items-center justify-between gap-3`}>
+      <div>
+        <p className="font-mono text-sm font-semibold text-ink-900">{formatMoney(totalOwed, 'GBP')} owed</p>
+        <p className="text-xs text-ink-400">
+          {formatMoney(loan.outstandingPrincipal, 'GBP')} principal + {formatMoney(loan.interestOwed, 'GBP')} interest ·{' '}
+          {loan.rateAnnualPercent}% of principal / min
+        </p>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          min="0.01"
+          step="0.01"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="amount"
+          className={`w-24 ${inputSm}`}
+        />
+        <button
+          type="button"
+          disabled={repay.isPending || !amount}
+          onClick={() =>
+            repay.mutate(
+              { gameLoanId: loan.gameLoanId, amount: Number(amount) },
+              {
+                onSuccess: () => {
+                  toast.success('Repayment applied')
+                  setAmount('')
+                },
+                onError: (error) => toast.error(apiErrorMessage(error)),
+              },
+            )
+          }
+          className={btnGhostSm}
+        >
+          Repay
+        </button>
+        <button
+          type="button"
+          disabled={repay.isPending}
+          onClick={() =>
+            // Repaying more than what's owed is fine — the server clamps to the real total, so
+            // sending a large amount reliably clears the loan even as interest ticks up mid-click.
+            repay.mutate(
+              { gameLoanId: loan.gameLoanId, amount: totalOwed * 2 + 1 },
+              {
+                onSuccess: () => toast.success('Loan paid off'),
+                onError: (error) => toast.error(apiErrorMessage(error)),
+              },
+            )
+          }
+          className={btnGhostSm}
+        >
+          Pay off
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function MyLoans({ sessionId, loans }: { sessionId: string; loans: GameLoanResponse[] }) {
+  if (loans.length === 0) {
+    return null
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <h2 className={sectionTitle}>My loans</h2>
+      {loans.map((loan) => (
+        <LoanRepayRow key={loan.gameLoanId} sessionId={sessionId} loan={loan} />
+      ))}
     </div>
   )
 }
@@ -443,7 +537,8 @@ export function GamePlayPage() {
 
   useEffect(() => {
     if (!market) return
-    const now = new Date().toLocaleTimeString('en-GB', { hour12: false })
+    const nowMs = Date.now()
+    const now = new Date(nowMs).toLocaleTimeString('en-GB', { hour12: false })
     const nextTrends = new Map(trends)
     const nextHistory = new Map(history)
     for (const { symbol, price } of market) {
@@ -452,7 +547,7 @@ export function GamePlayPage() {
       previousPrices.current.set(symbol, price)
 
       const existing = nextHistory.get(symbol) ?? []
-      nextHistory.set(symbol, [...existing, { time: now, price }].slice(-60))
+      nextHistory.set(symbol, [...existing, { time: now, price, t: nowMs }].slice(-60))
     }
     setTrends(nextTrends)
     setHistory(nextHistory)
@@ -488,6 +583,8 @@ export function GamePlayPage() {
       <div className="flex flex-wrap items-center gap-3">
         <LoanPanel sessionId={sessionId} ratePercent={difficulties?.find((d) => d.code === session.difficulty)?.loanRateAnnualPercent ?? 0} />
       </div>
+
+      <MyLoans sessionId={sessionId} loans={session.loans} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div>

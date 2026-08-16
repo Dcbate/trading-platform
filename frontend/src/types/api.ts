@@ -151,6 +151,7 @@ export interface GamePositionResponse {
 export interface GameLoanResponse {
   gameLoanId: string
   principal: number
+  outstandingPrincipal: number
   interestOwed: number
   rateAnnualPercent: number
   originatedAt: string

@@ -87,6 +87,17 @@ export function useTakeGameLoan(sessionId: string) {
   })
 }
 
+export function useRepayGameLoan(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ gameLoanId, amount }: { gameLoanId: string; amount: number }) =>
+      apiClient.post<GameSessionResponse>(`/v1/game/sessions/${sessionId}/loans/${gameLoanId}/repay`, { amount }).then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['game', 'session', sessionId], data)
+    },
+  })
+}
+
 export function usePlaceGameTrade(sessionId: string) {
   const queryClient = useQueryClient()
   return useMutation({
