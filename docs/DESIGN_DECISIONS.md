@@ -7,7 +7,7 @@ take.
 
 ## Email notifications — simulated (logged)
 
-**Files:** `notification/service/EmailSender.java` (interface), `LoggingEmailSender.java` (the only
+**Files:** `notification/service/EmailSender.java` (interface), `EmailSenderImpl.java` (the only
 implementation).
 
 ```java
@@ -25,13 +25,13 @@ around delivery (`NotificationEventConsumer`'s `@RetryableTopic`, 6 attempts wit
 backoff) is real and fully exercised regardless of what the "send" step actually does.
 
 **To productionize:** I'd implement `EmailSender` against a real provider (SendGrid's Java SDK is a
-single POST call) and register it as the primary `@Component`, keeping `LoggingEmailSender` as a
+single POST call) and register it as the primary `@Component`, keeping `EmailSenderImpl` as a
 `@Profile("dev")` fallback. My rough estimate is under an hour, since the retry/failure/DLQ path
 around it doesn't change at all.
 
 ## Slack alerts — simulated (logged)
 
-**Files:** `notification/service/SlackSender.java` / `LoggingSlackSender.java`. Same pattern and
+**Files:** `notification/service/SlackSender.java` / `SlackSenderImpl.java`. Same pattern and
 same reasoning as email above — logs a `[SLACK stand-in]` line instead of posting to a webhook.
 **To productionize:** a Slack incoming webhook is one `WebClient.post()` call; same effort class as
 email.
@@ -39,7 +39,7 @@ email.
 ## Bank clearing gateway — simulated (deterministic, not random)
 
 **Files:** `payment/service/BankClearingClient.java` (interface),
-`SimulatedBankClearingClient.java` (only implementation), `config/SettlementProperties.java`.
+`BankClearingClientImpl.java` (only implementation), `config/SettlementProperties.java`.
 
 ```java
 public boolean clear(Payment payment) {
@@ -151,8 +151,15 @@ Everything not listed above: the double-entry ledger, the payment saga (reserve 
 compensate) and its compensating-reversal correctness, ownership-based authorization, the Kafka
 event pipeline end to end (including the fallback queue for broker outages), the risk/fraud rule
 engines, loan interest accrual math, the matching engine, distributed tracing and metrics (see
-`OBSERVABILITY_PROOF.md`), and all three AI integrations (`AnthropicAnomalyDetector`,
-`AnthropicClaudeSummarizer`, `AnthropicGameCoach`) — every AI call in the app goes through the
-same Anthropic Claude API now, rather than splitting usage across two providers. Each makes a
-genuine outbound HTTP call when I've configured a real key, falling back to plain rule-based text
-(never blocking the underlying decision) only when no key is set.
+`OBSERVABILITY_PROOF.md`), and all three AI integrations (anomaly severity, payment summaries,
+Game Mode debrief) — every AI call in the app goes through the same Anthropic Claude API now,
+rather than splitting usage across two providers. As of the MCP migration, none of the three call
+Anthropic directly anymore: `ai/mcp/AnomalyDetectorImpl`, `ClaudeSummarizerImpl`, and `GameCoachImpl`
+implement the same interfaces the old in-process `AnthropicX` classes did, but reach Claude by
+calling `bate-mcp-server` — a real, separate MCP server (`bate-mcp-server/`) — over genuine
+JSON-RPC/Streamable HTTP via `ai/mcp/McpToolClient`. `bate-mcp-server` is now the only place in the
+whole system holding an Anthropic API key; this app connects to it lazily (not at startup) and
+never lets a failure there block anything — an unreachable server, a dropped connection, or a real
+MCP `isError` result all collapse to the exact same plain rule-based text the old direct-call
+version fell back to. See `bate-mcp-server/README.md` for the protocol details and a live-captured
+proof of this fallback actually firing.

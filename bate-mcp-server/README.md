@@ -133,16 +133,37 @@ Reasons:
 - It's lower risk to build, verify, and reason about in isolation, and nothing about "is this real
   MCP" depends on the module layout.
 
-## What's deliberately not built (yet)
+## `bate-banking-core` is a real MCP client of this server
 
-`bate-banking-core` does **not** call this server today — its three `AnthropicX` classes still
-call Anthropic directly, in-process, exactly as before. Wiring `bate-banking-core` to become an MCP
-*client* of this server (replacing those three classes with calls through
-`spring-ai-starter-mcp-client-webflux`) is the natural next step and was intentionally deferred
-so this server could be built, verified, and proven correct on its own first, without
-simultaneously destabilizing the main app's existing AI call sites in the same pass. See
-`docs/DESIGN_DECISIONS.md` in the repo root for a real, direct account of what's built vs. what
-isn't — this module gets the same treatment.
+`bate-banking-core`'s three AI call sites — fraud/anomaly severity, payment summaries, Game Mode
+debrief — no longer call Anthropic directly. `ai/mcp/McpToolClient.java` (in the main repo)
+connects to this server exactly the way any other MCP client would: the raw
+`io.modelcontextprotocol.sdk:mcp-core` SDK (`McpClient.sync(...)`, not a Spring AI client
+starter — this app only needs "call a named tool, get text back," not the broader
+ChatClient/tool-calling machinery a fuller integration would pull in), talking Streamable HTTP to
+`http://bate-mcp:8081/mcp` inside Docker Compose (`MCP_SERVER_URL` env var — never hardcoded).
+`AnomalyDetectorImpl`, `ClaudeSummarizerImpl`, and `GameCoachImpl` implement the exact same
+`AnomalyDetector`/`ClaudeSummarizer`/`GameCoach` interfaces the old in-process `AnthropicX` classes
+did, so nothing else in `bate-banking-core` changed — `FraudDetectionServiceImpl`,
+`RiskServiceImpl`, `SettlementServiceImpl`, and `GameServiceImpl` all still just depend on the
+interface.
+
+The old `AnthropicAnomalyDetector`/`AnthropicClaudeSummarizer`/`AnthropicGameCoach` classes, the
+`claude.*` config, and `spring-boot-starter-webflux` (only ever added for the Claude `WebClient`)
+were all removed from `bate-banking-core` once this landed — this server is now the *only* thing
+in the whole system holding an Anthropic API key.
+
+**The fallback guarantee crosses the network boundary too.** `McpToolClient.callTool` connects
+lazily (on first use, not at app startup, so this server being briefly down never blocks
+`bate-banking-core`'s own health checks) and never throws: an unreachable server, a dropped
+connection, or a real MCP `isError` result all collapse to `Optional.empty()`, and each of the
+three `McpX` classes falls back exactly the way its `AnthropicX` predecessor did — the rule's own
+description for anomalies, the raw context for payment summaries, the rule-based paragraph for
+Game Mode debriefs. Live-verified, not just asserted: with no real `CLAUDE_API_KEY` configured
+anywhere, a routine background price-anomaly check in `bate-banking-core` made a real MCP call to
+this server, got a real `isError` result back (`"CLAUDE_API_KEY is not configured on
+bate-mcp-server"`), and degraded to `aiEnriched=false` without incident — visible in `docker logs`
+from an ordinary run, not a contrived test.
 
 ## Also worth knowing: Gemini is gone
 

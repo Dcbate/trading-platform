@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -22,8 +23,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>Connects lazily on the first call rather than at startup, so bate-mcp-server being briefly
  * unavailable never blocks this app's own startup or health checks — the AI features it backs are
- * advisory everywhere they're used (see {@code McpAnomalyDetector}, {@code McpClaudeSummarizer},
- * {@code McpGameCoach}), never load-bearing.
+ * advisory everywhere they're used (see {@code AnomalyDetectorImpl}, {@code ClaudeSummarizerImpl},
+ * {@code GameCoachImpl}), never load-bearing.
  */
 @Slf4j
 @Component
@@ -32,6 +33,7 @@ public class McpToolClient {
     private final Supplier<McpSyncClient> clientFactory;
     private volatile McpSyncClient client;
 
+    @Autowired
     public McpToolClient(@Value("${mcp.server.url}") String serverUrl, @Value("${mcp.client.timeout-ms}") long timeoutMs) {
         this(() -> newInitializedClient(serverUrl, Duration.ofMillis(timeoutMs)));
     }

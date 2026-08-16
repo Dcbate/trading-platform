@@ -10,10 +10,10 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-class SimulatedBankClearingClientTest {
+class BankClearingClientImplTest {
 
-    private final SimulatedBankClearingClient client =
-            new SimulatedBankClearingClient(new SettlementProperties(new BigDecimal("500000")));
+    private final BankClearingClientImpl client =
+            new BankClearingClientImpl(new SettlementProperties(new BigDecimal("500000")));
 
     private Payment payment(String amount) {
         return Payment.builder()

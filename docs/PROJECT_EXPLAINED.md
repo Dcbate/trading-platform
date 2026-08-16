@@ -140,7 +140,9 @@ src/main/java/com/dcbate/tradingplatform/
 ├── game/          Game Mode — entirely isolated: own tables, own market simulator, no Kafka
 ├── notification/  retry/DLQ delivery via @RetryableTopic
 ├── ai/            AnomalyDetector + ClaudeSummarizer + GameCoach — all three backed by Anthropic
-│                  Claude, real API calls, with rule-based fallback if no key is configured or fails
+│                  Claude, called via ai/mcp/ as a real MCP client of the separate bate-mcp-server
+│                  project (../bate-mcp-server/), with rule-based fallback if unreachable or the
+│                  server itself has no key configured
 ├── chronicle/     off-heap, memory-mapped, zero-GC trade journal
 ├── kafka/         KafkaEventPublisher (+ fallback queue) and every kafka.event.* record
 ├── config/        Kafka, Security, Trading, Chronicle, tracing config
@@ -179,7 +181,7 @@ summary:
 |---|---|
 | Double-entry ledger, payment saga + compensation, ownership auth, Kafka pipeline + fallback queue, risk/fraud engines, loan interest accrual, matching engine, tracing/metrics | **Real** |
 | Claude anomaly enrichment / payment summaries / Game Mode debrief | **Real outbound API calls** when a key is configured; rule-based fallback otherwise — never blocks the underlying decision |
-| Email/Slack delivery | **Logged stand-in** — `LoggingEmailSender`/`LoggingSlackSender`; the retry/DLQ machinery around them is real |
+| Email/Slack delivery | **Logged stand-in** — `EmailSenderImpl`/`SlackSenderImpl`; the retry/DLQ machinery around them is real |
 | Bank clearing (`BankClearingClient`) | **Deterministic stand-in** — payments under a configured threshold always clear, larger ones always fail, so both the settle and compensate paths are exercisable without a real correspondent-bank relationship |
 | FX/stock price feed | **Simulated bounded random walk**, not a real market data subscription |
 | FX order fills → account balances | **Gap, not a design choice** — the matching engine fills orders correctly, but fills never debit/credit `Account.balance`. Only Payments/Transfers/Deposits/Withdrawals/Conversion touch it today |

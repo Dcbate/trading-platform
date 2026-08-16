@@ -11,11 +11,11 @@ import org.springframework.stereotype.Component;
  * server falls back to the raw context so the notification still sends.
  */
 @Component
-public class McpClaudeSummarizer implements ClaudeSummarizer {
+public class ClaudeSummarizerImpl implements ClaudeSummarizer {
 
     private final McpToolClient mcpToolClient;
 
-    public McpClaudeSummarizer(McpToolClient mcpToolClient) {
+    public ClaudeSummarizerImpl(McpToolClient mcpToolClient) {
         this.mcpToolClient = mcpToolClient;
     }
 

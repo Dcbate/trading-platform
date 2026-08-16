@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 /** Stand-in for a real Slack webhook integration — none configured for Phase 2. */
 @Slf4j
 @Component
-public class LoggingSlackSender implements SlackSender {
+public class SlackSenderImpl implements SlackSender {
 
     @Override
     public void send(String clientId, String subject, String body) {

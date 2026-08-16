@@ -11,7 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-class McpClaudeSummarizerTest {
+class ClaudeSummarizerImplTest {
 
     @Mock
     private McpToolClient mcpToolClient;
@@ -21,7 +21,7 @@ class McpClaudeSummarizerTest {
         when(mcpToolClient.callTool("summarize_payment", Map.of("context", "payment failed")))
                 .thenReturn(Optional.of("Unfortunately your payment could not be completed."));
 
-        String result = new McpClaudeSummarizer(mcpToolClient).summarize("payment failed");
+        String result = new ClaudeSummarizerImpl(mcpToolClient).summarize("payment failed");
 
         assertThat(result).isEqualTo("Unfortunately your payment could not be completed.");
     }
@@ -30,7 +30,7 @@ class McpClaudeSummarizerTest {
     void fallsBackToTheRawContextWhenTheToolCallFails() {
         when(mcpToolClient.callTool("summarize_payment", Map.of("context", "payment failed"))).thenReturn(Optional.empty());
 
-        String result = new McpClaudeSummarizer(mcpToolClient).summarize("payment failed");
+        String result = new ClaudeSummarizerImpl(mcpToolClient).summarize("payment failed");
 
         assertThat(result).isEqualTo("payment failed");
     }

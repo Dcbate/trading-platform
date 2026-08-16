@@ -187,13 +187,15 @@ held) — the frontend's `EndScreen` charts the latter as horizontal red/green b
 and losses"), and shows the former as plain text.
 
 The write-up itself follows the exact same interface pattern already used for anomaly enrichment
-(`AnthropicAnomalyDetector`) and payment-outcome summaries (`AnthropicClaudeSummarizer`) — a third,
-independent AI integration, not a special case:
+(`ai/mcp/AnomalyDetectorImpl`) and payment-outcome summaries (`ai/mcp/ClaudeSummarizerImpl`) — a
+third, independent AI integration, not a special case:
 
-- `ai/GameCoach` (interface) → `ai/AnthropicGameCoach` (real implementation), sharing the same
-  `claudeWebClient` bean and `claude.*` config as the payment summarizer, just a different prompt
-  and a longer response (400 tokens vs. 200 — a debrief is a few sentences of analysis, not a
-  one-line notification).
+- `ai/GameCoach` (interface) → `ai/mcp/GameCoachImpl` (real implementation), sharing the same
+  `McpToolClient` as the other two — none of the three call Anthropic directly; all three call
+  `bate-mcp-server`'s `debrief_game_session`/`summarize_anomaly`/`summarize_payment` tools over
+  real MCP (see `bate-mcp-server/README.md`). `bate-mcp-server` itself uses a different prompt and
+  a longer response for the debrief tool (400 tokens vs. 200 — a debrief is a few sentences of
+  analysis, not a one-line notification).
 - The full session narrative handed to Claude — the difficulty's rules (goal, starting cash, time
   limit, the per-minute loan interest rate), the outcome, every trade in order, every loan taken,
   and the final per-symbol P&L — is built in `GameServiceImpl.buildNarrative`, so the model is

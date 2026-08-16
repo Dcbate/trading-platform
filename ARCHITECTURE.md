@@ -208,7 +208,7 @@ broadcast use case. The effect (thread-per-connection cost eliminated) is the sa
 differs from the spec's `Flux` sketch, and I think that's the right call.
 
 **6. Off-heap trade journal** — Chronicle Queue, memory-mapped file, zero GC pressure. See
-[ChronicleTradeJournalWriter](src/main/java/com/dcbate/tradingplatform/chronicle/ChronicleTradeJournalWriter.java).
+[TradeJournalWriterImpl](src/main/java/com/dcbate/tradingplatform/chronicle/TradeJournalWriterImpl.java).
 Needs JVM `--add-opens`/`--add-exports` flags on JDK 17+ to reach internal APIs — wired into
 `pom.xml` (`chronicle.jvm.opens`, applied to Surefire, `spring-boot:run`, and `docker/Dockerfile`).
 
@@ -248,7 +248,7 @@ hand. Full verification, with real trace IDs and metric values, in
 
 JUnit 5 + Mockito unit tests per service (dependencies mocked, one class per test file), plus
 dedicated tests that exercise pure logic directly with no framework involved (`OrderBookTest`,
-`PaymentVelocityTrackerTest`, `SimulatedBankClearingClientTest`). One Testcontainers
+`PaymentVelocityTrackerTest`, `BankClearingClientImplTest`). One Testcontainers
 `@SpringBootTest` (`AccountSecurityIntegrationTest`) proves ownership security end-to-end against
 real Kafka, PostgreSQL, and Redis containers — two more integration tests covering the full
 order→trade and payment→settlement pipelines existed at one point but I removed them after they

@@ -54,7 +54,7 @@ signup/login/refresh-token tests added alongside real auth.
 | **Kafka-down fallback queue** | Unit tests (`KafkaEventPublisher`) |
 | **Compliance approve/reject for `UNDER_REVIEW` payments** | Unit tests + endpoint live |
 | **Kubernetes + Helm** | Verified against a real local `kind` cluster: all pods `Running`, liveness/readiness probes reporting `UP` via port-forward. Not verified against real GKE/EKS/cloud infra. |
-| **Claude AI enrichment** (fraud/anomaly severity, payment summaries, Game Mode debrief) | Wired for real (not mocked), a genuine outbound API call; falls back to the rule-based description on any failure/missing key without changing the underlying decision. Success path isn't unit-tested — mocking WebFlux's fluent client for it felt disproportionate to the payoff — but the failure/fallback path is. |
+| **Claude AI enrichment** (fraud/anomaly severity, payment summaries, Game Mode debrief) | Wired for real (not mocked) via `bate-mcp-server`, a genuine standalone MCP server this app calls over real MCP (`ai/mcp/McpToolClient`) rather than calling Anthropic in-process; falls back to the rule-based description on any failure/missing key — server unreachable or Claude itself failing — without changing the underlying decision. Live-verified: a real background anomaly check made a real MCP call, got a real `isError` result back, and degraded correctly (see `bate-mcp-server/README.md`). |
 | **Chronicle Queue trade journal** | Off-heap, memory-mapped, zero-GC — live, unit-tested reader/writer |
 | **Distributed tracing (Jaeger)** | Live-verified: real trace IDs, real span breakdowns. I found and fixed a genuine Spring Boot 4.1.0 gap where tracing was a silent no-op — see `docs/OBSERVABILITY_PROOF.md`. |
 | **Metrics + dashboards (Prometheus/Grafana)** | Live: 151 scraped metrics, a working Grafana dashboard, 5 alert rules actually loaded (I found the alert rules file wasn't even mounted into the container — fixed). |
@@ -64,7 +64,7 @@ signup/login/refresh-token tests added alongside real auth.
 
 ## What's simulated / stand-in (by design, documented, not hidden)
 
-- **`SimulatedBankClearingClient`** — no real bank gateway exists; deterministically fails above a
+- **`BankClearingClientImpl`** — no real bank gateway exists; deterministically fails above a
   configured amount so the compensation path is exercisable, not a business rule.
 - **Email/Slack notifications** — logging stand-ins, never fail in practice (no real provider to
   fail against). Retry/DLQ wiring is proven by unit test (exception propagation), not by a real
@@ -115,8 +115,10 @@ src/main/java/com/dcbate/tradingplatform/
 ├── loan/              LoanController/Service/Repository — product catalog, originate, repay, accrue
 ├── trading/            Order, Risk, MatchingEngine (+matching/OrderBook), Execution, PriceFeed
 ├── notification/       Notification retry/DLQ (@RetryableTopic)
-├── ai/                AnomalyDetector + AnthropicAnomalyDetector, ClaudeSummarizer + AnthropicClaudeSummarizer,
-│                      GameCoach + AnthropicGameCoach — all three AI calls go through Claude
+├── ai/                AnomalyDetector, ClaudeSummarizer, GameCoach — three AI-backed interfaces
+│                      ai/mcp/    AnomalyDetectorImpl, ClaudeSummarizerImpl, GameCoachImpl + McpToolClient:
+│                                 all three now call bate-mcp-server (../bate-mcp-server/) over real
+│                                 MCP instead of Anthropic directly — see that module's README.md
 ├── chronicle/          Off-heap trade journal reader/writer
 ├── kafka/              KafkaEventPublisher (+ fallback queue) and every kafka.event.* record
 ├── config/             Kafka, Security, Trading, Chronicle Queue, Tracing config + KafkaTopicsProperties

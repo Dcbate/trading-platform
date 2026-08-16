@@ -21,7 +21,7 @@ import tools.jackson.databind.ObjectMapper;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ChronicleTradeJournalReader implements TradeJournalReader {
+public class TradeJournalReaderImpl implements TradeJournalReader {
 
     private final ChronicleQueue tradeJournalQueue;
     private final ObjectMapper objectMapper;

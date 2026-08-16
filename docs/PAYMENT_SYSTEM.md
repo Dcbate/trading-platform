@@ -59,7 +59,7 @@ actually review, not spread across three consumers I'd have to mentally stitch b
    `ledger-entries` for compliance (365-day retention — nothing consumes this topic yet, it's a
    forward-looking audit sink).
 3. **Clear**: `BankClearingClient.clear()`. No real bank exists for this project, so
-   `SimulatedBankClearingClient` deterministically fails above
+   `BankClearingClientImpl` deterministically fails above
    `payment.settlement.simulated-bank-failure-threshold` — a test seam I built specifically so I
    could exercise and test compensation, not a business rule.
 4. **Compensate on failure**: `LedgerService.reverseEntries()` writes *reversing* rows (opposite

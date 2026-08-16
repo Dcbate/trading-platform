@@ -14,11 +14,11 @@ import org.springframework.stereotype.Component;
  * session data.
  */
 @Component
-public class McpGameCoach implements GameCoach {
+public class GameCoachImpl implements GameCoach {
 
     private final McpToolClient mcpToolClient;
 
-    public McpGameCoach(McpToolClient mcpToolClient) {
+    public GameCoachImpl(McpToolClient mcpToolClient) {
         this.mcpToolClient = mcpToolClient;
     }
 

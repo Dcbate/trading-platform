@@ -21,7 +21,7 @@ Because an external bank's clearing API is a separate system that can fail, time
 partially, and you can't put "call another bank" inside a local database transaction. In
 `PaymentServiceImpl` I reserve funds, then `SettlementServiceImpl` runs the saga: write ledger
 entries, call `BankClearingClient.clear()`, and on failure write compensating reversal entries so
-the ledger nets back to zero. I made `SimulatedBankClearingClient` deterministically fail above a
+the ledger nets back to zero. I made `BankClearingClientImpl` deterministically fail above a
 $500,000 threshold specifically so I could exercise both the settle and the compensate paths on
 demand instead of only in theory.
 
@@ -64,18 +64,22 @@ of this rather than oversell it: it's single-instance and in-memory, so queued e
 restart, and it doesn't help once there's more than one app instance running. It buys me time
 through a transient outage; it isn't a durable outbox pattern, and I wouldn't claim it is.
 
-### "What if the fraud-detection AI (Claude) is down?"
+### "What if the fraud-detection AI (Claude) is down — or the MCP server it goes through?"
 
 Nothing about the fraud decision changes, and I want to be precise here because the obvious-sounding
 answer — "payments get flagged for manual review instead" — is actually wrong for how I built this.
 `FraudDetectionServiceImpl.evaluate()` runs three deterministic rule checks (velocity,
 country-change, amount-anomaly) and decides BLOCKED / UNDER_REVIEW / PASS from those alone.
-`AnthropicAnomalyDetector` only gets invoked *after* that decision is already made, purely to
-generate a human-readable explanation string for the record and the notification text. If Claude
-times out or errors, it falls back to the plain rule-description text — the payment's actual status
-doesn't move either way. I did that on purpose: AI enrichment is cosmetic to the decision here, not
-load-bearing, because I didn't want a third-party API outage to be able to change whether money
-moves.
+`AnomalyDetectorImpl` only gets invoked *after* that decision is already made, purely to generate a
+human-readable explanation string for the record and the notification text — and it doesn't call
+Claude directly anymore, it calls `bate-mcp-server` (a separate service) over real MCP, which then
+calls Claude. That's an extra network hop and an extra failure mode I deliberately took on, so I
+made sure the fallback covers both layers: if `bate-mcp-server` is unreachable, the connection
+drops mid-call, or Claude itself times out or errors on the other side, `McpToolClient` catches all
+of it and returns nothing, and `AnomalyDetectorImpl` falls back to the plain rule-description text —
+the payment's actual status doesn't move either way. I did that on purpose: AI enrichment is
+cosmetic to the decision here, not load-bearing, because I didn't want a third-party API outage —
+or an outage of my own MCP server — to be able to change whether money moves.
 
 ### "Why did you use Kafka instead of just calling services directly over REST?"
 

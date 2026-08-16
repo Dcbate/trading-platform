@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class SimulatedBankClearingClient implements BankClearingClient {
+public class BankClearingClientImpl implements BankClearingClient {
 
     private final SettlementProperties settlementProperties;
 

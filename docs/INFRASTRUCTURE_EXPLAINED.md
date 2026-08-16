@@ -165,32 +165,41 @@ built with that in mind. JWT refresh tokens are **not** in Redis — they're a r
 (`refresh_tokens`) with a revoked flag, since token rotation needs the durability and query
 guarantees of the relational store, not a cache.
 
-## AI integrations
+## AI integrations — now via a real MCP server, not in-process
 
-`ai/AnthropicAnomalyDetector` (implements `AnomalyDetector`), `ai/AnthropicClaudeSummarizer`
-(implements `ClaudeSummarizer`), and `ai/AnthropicGameCoach` (implements `GameCoach`) all make
-genuine outbound HTTP calls to Anthropic's Messages API via a shared `claudeWebClient` bean when a
-real API key is configured (`claude.api-key`, checked against a `"placeholder-set-me"` sentinel),
-with a hard timeout (`claude.timeout-ms`) and a try/catch that degrades to a plain rule-based string
-on any failure — timeout, network error, malformed response, or no key configured. All three are
-wired as the *only* implementation of their interface (no toggle/flag), so the fallback path is
-exercised automatically whenever no key is present, which is also what's covered by the unit
-tests — the real-API success path isn't unit tested (mocking WebFlux's reactive chain for it wasn't
-judged worth the payoff relative to a live-verified real call), but the fallback path is. Every AI
-call in the app goes through Claude now, rather than splitting usage across two providers — an
-earlier version used Google's Gemini for anomaly enrichment specifically; it was replaced with
-`AnthropicAnomalyDetector` so there's one AI provider, one API key, and one set of failure modes to
-reason about.
+`ai/mcp/AnomalyDetectorImpl` (implements `AnomalyDetector`), `ai/mcp/ClaudeSummarizerImpl`
+(implements `ClaudeSummarizer`), and `ai/mcp/GameCoachImpl` (implements `GameCoach`) don't call
+Anthropic directly anymore. Each delegates to `ai/mcp/McpToolClient`, which is a real Model Context
+Protocol client — `io.modelcontextprotocol.sdk:mcp-core`'s `McpClient.sync(...)` over Streamable
+HTTP, not a hand-rolled REST call — talking to `bate-mcp-server`, a genuinely separate,
+independently-deployable Spring Boot service (`bate-mcp-server/`, its own Maven project, its own
+Dockerfile, its own container in `docker-compose.yml`) that's the *only* place in the whole system
+holding a Claude API key now. `bate-banking-core` never sees `CLAUDE_API_KEY` at all; it only knows
+`MCP_SERVER_URL`.
 
-`AnthropicAnomalyDetector.explain` is called from `FraudDetectionServiceImpl`/`RiskServiceImpl` to
+The fallback contract survived the move to a second process: `McpToolClient.callTool` connects
+lazily (first use, not app startup — so `bate-mcp-server` being briefly down never blocks
+`bate-banking-core`'s own health checks) and never throws. An unreachable server, a dropped
+connection mid-call, or a real MCP `isError` result (`bate-mcp-server` itself has no
+`CLAUDE_API_KEY` configured, or the Anthropic call failed) all collapse to `Optional.empty()`, and
+each of the three `McpX` classes degrades exactly the way its old in-process `AnthropicX`
+predecessor did — the rule's own description for anomalies, the raw context for payment summaries,
+the rule-based paragraph for Game Mode debriefs. This is live-verified, not just unit-tested: with
+no real Claude key configured anywhere, an ordinary background price-anomaly check made a genuine
+MCP call, got a genuine `isError` result back, and degraded correctly — visible in `docker logs`
+from a normal run (see `bate-mcp-server/README.md` for the captured log line).
+
+`AnomalyDetectorImpl.explain` is called from `FraudDetectionServiceImpl`/`RiskServiceImpl` to
 enrich an already-triggered rule (`fraud_detection_latency_seconds` — real p99 of 324ms measured
-live, see [OBSERVABILITY_PROOF.md](OBSERVABILITY_PROOF.md)) with a one-sentence severity
-assessment. `AnthropicClaudeSummarizer.summarize` is called from the settlement/notification path
-to turn a payment event into a short customer-facing sentence. `AnthropicGameCoach.debrief` is
+live pre-migration, see [OBSERVABILITY_PROOF.md](OBSERVABILITY_PROOF.md)) with a one-sentence
+severity assessment. `ClaudeSummarizerImpl.summarize` is called from the settlement/notification
+path to turn a payment event into a short customer-facing sentence. `GameCoachImpl.debrief` is
 called from `GameServiceImpl.getDebrief` once a Game Mode session ends, given the difficulty's
 rules plus the full trade/loan history, to write a few sentences on why the player won or lost —
 see [GAME_MODE.md §9](GAME_MODE.md#9-ai-written-debrief) for the full shape of this one, including
-the per-symbol P&L chart it's paired with on the frontend.
+the per-symbol P&L chart it's paired with on the frontend, and `bate-mcp-server/README.md` for why
+this is real MCP (JSON-RPC, tool discovery, auto-generated schemas) rather than a REST facade that
+merely looks like it.
 
 ## Observability: Prometheus, Grafana, Jaeger
 

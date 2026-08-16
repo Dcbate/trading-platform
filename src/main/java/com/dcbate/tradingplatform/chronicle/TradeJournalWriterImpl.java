@@ -19,7 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ChronicleTradeJournalWriter implements TradeJournalWriter {
+public class TradeJournalWriterImpl implements TradeJournalWriter {
 
     private final ChronicleQueue tradeJournalQueue;
     private final ObjectMapper objectMapper;

@@ -84,9 +84,9 @@ services:
       - "3000:3000"
 
   # Real MCP server (Spring AI's spring-ai-starter-mcp-server-webmvc, Streamable HTTP transport)
-  # exposing Bate Banking's three AI calls as MCP tools — see bate-mcp-server/README.md. Not
-  # required for bate-banking-core to function today (the main app still calls Anthropic
-  # in-process); this is a standalone, independently runnable/demoable service.
+  # exposing Bate Banking's three AI calls as MCP tools — see bate-mcp-server/README.md. `app`
+  # below is a real MCP client of this service now (ai/mcp/McpToolClient.java) — this is the only
+  # place in the whole stack that holds a Claude API key.
   bate-mcp:
     build:
       context: ../bate-mcp-server
@@ -113,6 +113,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      bate-mcp:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
@@ -122,7 +124,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: trading
       SPRING_DATA_REDIS_HOST: redis
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-placeholder-set-me}
+      MCP_SERVER_URL: http://bate-mcp:8081/mcp
       JWT_SECRET: ${JWT_SECRET:-local-dev-secret-change-me-please-32bytes}
       OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
 

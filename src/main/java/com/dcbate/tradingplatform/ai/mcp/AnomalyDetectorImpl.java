@@ -13,11 +13,11 @@ import org.springframework.stereotype.Component;
  * server degrades to the rule's own description rather than blocking anything.
  */
 @Component
-public class McpAnomalyDetector implements AnomalyDetector {
+public class AnomalyDetectorImpl implements AnomalyDetector {
 
     private final McpToolClient mcpToolClient;
 
-    public McpAnomalyDetector(McpToolClient mcpToolClient) {
+    public AnomalyDetectorImpl(McpToolClient mcpToolClient) {
         this.mcpToolClient = mcpToolClient;
     }
 

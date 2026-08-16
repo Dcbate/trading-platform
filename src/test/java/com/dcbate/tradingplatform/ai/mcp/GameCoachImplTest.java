@@ -13,7 +13,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-class McpGameCoachTest {
+class GameCoachImplTest {
 
     @Mock
     private McpToolClient mcpToolClient;
@@ -23,7 +23,7 @@ class McpGameCoachTest {
         when(mcpToolClient.callTool("debrief_game_session", Map.of("narrative", "Outcome: WON")))
                 .thenReturn(Optional.of("You won by riding AAPL higher."));
 
-        GameDebriefResult result = new McpGameCoach(mcpToolClient).debrief(new GameDebriefContext("Outcome: WON", "fallback summary"));
+        GameDebriefResult result = new GameCoachImpl(mcpToolClient).debrief(new GameDebriefContext("Outcome: WON", "fallback summary"));
 
         assertThat(result.summary()).isEqualTo("You won by riding AAPL higher.");
         assertThat(result.aiGenerated()).isTrue();
@@ -33,7 +33,7 @@ class McpGameCoachTest {
     void fallsBackToTheRuleBasedSummaryWhenTheToolCallFails() {
         when(mcpToolClient.callTool("debrief_game_session", Map.of("narrative", "Outcome: WON"))).thenReturn(Optional.empty());
 
-        GameDebriefResult result = new McpGameCoach(mcpToolClient).debrief(new GameDebriefContext("Outcome: WON", "fallback summary"));
+        GameDebriefResult result = new GameCoachImpl(mcpToolClient).debrief(new GameDebriefContext("Outcome: WON", "fallback summary"));
 
         assertThat(result.summary()).isEqualTo("fallback summary");
         assertThat(result.aiGenerated()).isFalse();
