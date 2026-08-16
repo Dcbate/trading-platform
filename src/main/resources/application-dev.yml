@@ -1,10 +1,8 @@
 # Local development convenience profile: disables JWT enforcement so the API
 # can be exercised with plain curl/Postman without minting a token first.
-# NEVER active in production — SecurityConfig only wires the permit-all chain
-# when this profile is present; the default chain always requires a valid JWT.
-security:
-  dev-mode: true
-
+# NEVER active in production — the switch is this profile's mere presence, read via
+# @Profile("dev")/@Profile("!dev") on SecurityConfig's two filter chain beans, not a config
+# value — there's deliberately no security.dev-mode key here, since nothing would read it.
 app:
   security:
     # Plain http locally (no TLS termination) — a Secure cookie would just never get sent.

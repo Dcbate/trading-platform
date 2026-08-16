@@ -18,14 +18,6 @@ export function useBalanceSummary(clientId: string | undefined) {
   })
 }
 
-export function useAccount(accountId: string | undefined) {
-  return useQuery({
-    queryKey: ['account', accountId],
-    queryFn: () => apiClient.get<AccountResponse>(`/v1/accounts/${accountId}`).then((r) => r.data),
-    enabled: !!accountId,
-  })
-}
-
 export function useCurrencies() {
   return useQuery({
     queryKey: ['currencies'],

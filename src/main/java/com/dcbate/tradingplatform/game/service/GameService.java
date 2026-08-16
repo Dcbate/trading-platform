@@ -1,6 +1,7 @@
 package com.dcbate.tradingplatform.game.service;
 
 import com.dcbate.tradingplatform.domain.GameDifficulty;
+import com.dcbate.tradingplatform.game.api.dto.GameDebriefResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameSessionResponse;
@@ -34,4 +35,7 @@ public interface GameService {
     List<GameTradeResponse> listTrades(UUID sessionId, CallerPrincipal caller);
 
     GameStatsResponse getStats(String clientId, CallerPrincipal caller);
+
+    /** Only available once a session has ended — throws {@code GameSessionStillInProgressException} otherwise. */
+    GameDebriefResponse getDebrief(UUID sessionId, CallerPrincipal caller);
 }

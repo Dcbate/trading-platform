@@ -1,5 +1,8 @@
 package com.dcbate.tradingplatform.game.service;
 
+import com.dcbate.tradingplatform.ai.GameCoach;
+import com.dcbate.tradingplatform.ai.GameDebriefContext;
+import com.dcbate.tradingplatform.ai.GameDebriefResult;
 import com.dcbate.tradingplatform.domain.GameDifficulty;
 import com.dcbate.tradingplatform.domain.GameLoan;
 import com.dcbate.tradingplatform.domain.GamePosition;
@@ -12,6 +15,8 @@ import com.dcbate.tradingplatform.exception.GameInsufficientPositionException;
 import com.dcbate.tradingplatform.exception.GameLoanNotFoundException;
 import com.dcbate.tradingplatform.exception.GameSessionNotActiveException;
 import com.dcbate.tradingplatform.exception.GameSessionNotFoundException;
+import com.dcbate.tradingplatform.exception.GameSessionStillInProgressException;
+import com.dcbate.tradingplatform.game.api.dto.GameDebriefResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanResponse;
@@ -19,6 +24,7 @@ import com.dcbate.tradingplatform.game.api.dto.GamePositionResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameSessionResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameStatsResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameStatsResponse.GameDifficultyStat;
+import com.dcbate.tradingplatform.game.api.dto.GameSymbolPerformanceResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameTradeRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameTradeResponse;
 import com.dcbate.tradingplatform.game.repository.GameLoanRepository;
@@ -35,6 +41,9 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -62,6 +71,7 @@ public class GameServiceImpl implements GameService {
     private final GameLoanRepository loanRepository;
     private final GameTradeRepository tradeRepository;
     private final GameMarketService marketService;
+    private final GameCoach gameCoach;
 
     @Override
     @Transactional
@@ -286,6 +296,137 @@ public class GameServiceImpl implements GameService {
                 .toList();
 
         return new GameStatsResponse(clientId, totalGames, wins, winRatePercent, bestTradePnl, perDifficulty);
+    }
+
+    @Override
+    @Transactional
+    public GameDebriefResponse getDebrief(UUID sessionId, CallerPrincipal caller) {
+        GameSession session = requireSession(sessionId);
+        caller.requireOwner(session.getClientId());
+        evaluate(session);
+        if (session.getStatus() == GameStatus.IN_PROGRESS) {
+            throw new GameSessionStillInProgressException(sessionId);
+        }
+
+        List<GameTrade> trades = tradeRepository.findBySessionIdOrderByCreatedAtDesc(sessionId).stream()
+                .sorted(Comparator.comparing(GameTrade::getCreatedAt))
+                .toList();
+        List<GamePosition> positions = positionRepository.findBySessionId(sessionId);
+        List<GameLoan> loans = loanRepository.findBySessionId(sessionId);
+
+        List<GameSymbolPerformanceResponse> symbolPerformance = buildSymbolPerformance(session, trades, positions);
+        String narrative = buildNarrative(session, trades, loans, symbolPerformance);
+        String fallbackSummary = buildFallbackSummary(session, symbolPerformance, loans);
+
+        GameDebriefResult result = gameCoach.debrief(new GameDebriefContext(narrative, fallbackSummary));
+        log.info("Game debrief generated: sessionId={}, aiGenerated={}", sessionId, result.aiGenerated());
+        return new GameDebriefResponse(result.summary(), result.aiGenerated(), symbolPerformance);
+    }
+
+    /** One row per symbol ever traded or still held — realized P&L from closed sells, unrealized from whatever's still open. */
+    private List<GameSymbolPerformanceResponse> buildSymbolPerformance(GameSession session, List<GameTrade> trades, List<GamePosition> positions) {
+        Map<String, GamePosition> positionBySymbol = positions.stream().collect(Collectors.toMap(GamePosition::getSymbol, p -> p));
+        Map<String, BigDecimal> realizedBySymbol = trades.stream()
+                .filter(t -> t.getRealizedPnl() != null)
+                .collect(Collectors.groupingBy(GameTrade::getSymbol, Collectors.reducing(BigDecimal.ZERO, GameTrade::getRealizedPnl, BigDecimal::add)));
+
+        Set<String> symbols = new TreeSet<>();
+        symbols.addAll(realizedBySymbol.keySet());
+        symbols.addAll(positionBySymbol.keySet());
+
+        return symbols.stream()
+                .map(symbol -> {
+                    BigDecimal realizedPnl = realizedBySymbol.getOrDefault(symbol, BigDecimal.ZERO);
+                    GamePosition position = positionBySymbol.get(symbol);
+                    BigDecimal quantityHeld = position != null ? position.getQuantity() : BigDecimal.ZERO;
+                    BigDecimal unrealizedPnl = BigDecimal.ZERO;
+                    if (position != null) {
+                        BigDecimal currentPrice = marketService.currentPrice(session.getDifficulty(), symbol).orElse(position.getAvgCost());
+                        unrealizedPnl = currentPrice.subtract(position.getAvgCost()).multiply(position.getQuantity());
+                    }
+                    return new GameSymbolPerformanceResponse(symbol, realizedPnl, unrealizedPnl, realizedPnl.add(unrealizedPnl), quantityHeld);
+                })
+                .sorted(Comparator.comparing(GameSymbolPerformanceResponse::totalPnl).reversed())
+                .toList();
+    }
+
+    /** Everything Claude needs to write a grounded debrief: the rules of the tier played, the outcome, and the full trade/loan history. */
+    private String buildNarrative(GameSession session, List<GameTrade> trades, List<GameLoan> loans, List<GameSymbolPerformanceResponse> symbolPerformance) {
+        GameDifficulty d = session.getDifficulty();
+        StringBuilder sb = new StringBuilder();
+        sb.append("This is Game Mode, a practice trading game with fake money. Difficulty: ").append(d.getDisplayName())
+                .append(". Rules: start with ").append(money(d.getStartingCash())).append(" cash, reach a net worth of ")
+                .append(money(d.getGoalAmount())).append(" within ").append(d.getDurationMinutes())
+                .append(" minutes to win, going bankrupt (net worth below zero) loses immediately. Loan interest accrues at ")
+                .append(d.getLoanRateAnnualPercent()).append("% of the outstanding balance per MINUTE it's left unpaid (not per year — ")
+                .append("this is deliberately fast so interest is a felt cost within a short session). Trading fee is ")
+                .append(d.getFeeRate()).append(" of notional per trade.\n\n");
+
+        sb.append("Outcome: ").append(session.getStatus()).append(", final net worth ")
+                .append(money(session.getFinalNetWorth())).append(" against a goal of ").append(money(d.getGoalAmount())).append(".\n\n");
+
+        sb.append("Trades, in order:\n");
+        if (trades.isEmpty()) {
+            sb.append("- none — no trades were placed this session\n");
+        }
+        for (GameTrade t : trades) {
+            sb.append("- ").append(t.getSide()).append(' ').append(t.getQuantity()).append(' ').append(t.getSymbol()).append(" @ ").append(t.getPrice());
+            if (t.getRealizedPnl() != null) {
+                sb.append(" (realized P&L ").append(money(t.getRealizedPnl())).append(')');
+            }
+            sb.append('\n');
+        }
+
+        sb.append("\nLoans taken:\n");
+        if (loans.isEmpty()) {
+            sb.append("- none — no loans were taken this session\n");
+        }
+        for (GameLoan loan : loans) {
+            BigDecimal owed = totalOwed(loan);
+            sb.append("- borrowed ").append(money(loan.getPrincipal())).append(" at ").append(loan.getRateAnnualPercent())
+                    .append("%/minute; ").append(owed.signum() > 0 ? "still owed " + money(owed) + " at session end" : "fully repaid").append('\n');
+        }
+
+        sb.append("\nFinal per-symbol P&L:\n");
+        for (GameSymbolPerformanceResponse p : symbolPerformance) {
+            sb.append("- ").append(p.symbol()).append(": total P&L ").append(money(p.totalPnl()))
+                    .append(p.quantityHeld().signum() > 0 ? " (still holding " + p.quantityHeld() + " shares, unrealized)" : " (fully closed out)")
+                    .append('\n');
+        }
+
+        return sb.toString();
+    }
+
+    /** Used verbatim when Claude is unavailable, and as the AI's starting point otherwise — always a real, specific summary, never a placeholder. */
+    private String buildFallbackSummary(GameSession session, List<GameSymbolPerformanceResponse> symbolPerformance, List<GameLoan> loans) {
+        String outcome = switch (session.getStatus()) {
+            case WON -> "You won";
+            case LOST_BANKRUPT -> "You went bankrupt";
+            case LOST_TIME -> "You ran out of time";
+            case IN_PROGRESS -> "The session ended";
+        };
+        StringBuilder sb = new StringBuilder(outcome)
+                .append(" with a net worth of ").append(money(session.getFinalNetWorth()))
+                .append(" against a goal of ").append(money(session.getDifficulty().getGoalAmount())).append(". ");
+
+        Optional<GameSymbolPerformanceResponse> best = symbolPerformance.stream().max(Comparator.comparing(GameSymbolPerformanceResponse::totalPnl));
+        Optional<GameSymbolPerformanceResponse> worst = symbolPerformance.stream().min(Comparator.comparing(GameSymbolPerformanceResponse::totalPnl));
+        best.filter(b -> b.totalPnl().signum() > 0)
+                .ifPresent(b -> sb.append("Your best position was ").append(b.symbol()).append(" at ").append(money(b.totalPnl())).append(". "));
+        worst.filter(w -> w.totalPnl().signum() < 0)
+                .ifPresent(w -> sb.append("Your worst position was ").append(w.symbol()).append(" at ").append(money(w.totalPnl())).append(". "));
+
+        if (!loans.isEmpty()) {
+            BigDecimal stillOwed = loans.stream().map(this::totalOwed).reduce(BigDecimal.ZERO, BigDecimal::add);
+            sb.append(stillOwed.signum() > 0
+                    ? "You still owed " + money(stillOwed) + " in loans at the end, which dragged down your net worth."
+                    : "All loans were repaid by the end.");
+        }
+        return sb.toString();
+    }
+
+    private String money(BigDecimal amount) {
+        return "£" + amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
     }
 
     /** Flips status to WON/LOST_BANKRUPT/LOST_TIME if the session has actually ended since it was last read — see the class javadoc. */

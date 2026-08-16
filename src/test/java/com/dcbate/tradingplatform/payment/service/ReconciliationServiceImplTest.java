@@ -57,7 +57,7 @@ class ReconciliationServiceImplTest {
     void setUp() {
         KafkaTopicsProperties topics = new KafkaTopicsProperties(
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
-                "payments", "payments-validated", "ledger-entries", "settlements", "fraud-alerts", "notifications", "notifications-dlq",
+                "payments", "payments-validated", "ledger-entries", "fraud-alerts", "notifications",
                 "account-activity", "transfers", "loans");
         ReconciliationProperties reconciliationProperties = new ReconciliationProperties(new BigDecimal("1.00"), "0 0 2 * * *");
         reconciliationService = new ReconciliationServiceImpl(

@@ -188,6 +188,20 @@ export interface GamePriceResponse {
   price: number
 }
 
+export interface GameSymbolPerformanceResponse {
+  symbol: string
+  realizedPnl: number
+  unrealizedPnl: number
+  totalPnl: number
+  quantityHeld: number
+}
+
+export interface GameDebriefResponse {
+  summary: string
+  aiGenerated: boolean
+  symbolPerformance: GameSymbolPerformanceResponse[]
+}
+
 export interface GameDifficultyStat {
   difficulty: GameDifficultyCode
   gamesPlayed: number

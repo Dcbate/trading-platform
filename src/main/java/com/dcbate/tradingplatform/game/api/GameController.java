@@ -1,6 +1,7 @@
 package com.dcbate.tradingplatform.game.api;
 
 import com.dcbate.tradingplatform.domain.GameDifficulty;
+import com.dcbate.tradingplatform.game.api.dto.GameDebriefResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameDifficultyResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
@@ -109,6 +110,13 @@ public class GameController {
     @Operation(summary = "A session's trade history, most recent first")
     public ResponseEntity<List<GameTradeResponse>> listTrades(@PathVariable UUID sessionId, Authentication authentication) {
         return ResponseEntity.ok(gameService.listTrades(sessionId, CallerPrincipal.from(authentication)));
+    }
+
+    @GetMapping("/sessions/{sessionId}/debrief")
+    @Operation(summary = "AI-written debrief for a finished session — why you won or lost, which trades/loans helped or hurt, "
+            + "plus a per-symbol P&L breakdown. 409 if the session hasn't ended yet.")
+    public ResponseEntity<GameDebriefResponse> getDebrief(@PathVariable UUID sessionId, Authentication authentication) {
+        return ResponseEntity.ok(gameService.getDebrief(sessionId, CallerPrincipal.from(authentication)));
     }
 
     @GetMapping("/stats")

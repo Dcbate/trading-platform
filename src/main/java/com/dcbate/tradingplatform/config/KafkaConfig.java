@@ -129,11 +129,6 @@ public class KafkaConfig {
     }
 
     @Bean
-    public NewTopic settlementsTopic(KafkaTopicsProperties topics) {
-        return new NewTopic(topics.settlements(), 10, (short) 1);
-    }
-
-    @Bean
     public NewTopic fraudAlertsTopic(KafkaTopicsProperties topics) {
         return new NewTopic(topics.fraudAlerts(), 5, (short) 1);
     }

@@ -13,10 +13,8 @@ public record KafkaTopicsProperties(
         String payments,
         String paymentsValidated,
         String ledgerEntries,
-        String settlements,
         String fraudAlerts,
         String notifications,
-        String notificationsDlq,
         String accountActivity,
         String transfers,
         String loans) {

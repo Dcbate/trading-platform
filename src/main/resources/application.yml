@@ -160,10 +160,8 @@ kafka:
     payments: payments
     payments-validated: payments-validated
     ledger-entries: ledger-entries
-    settlements: settlements
     fraud-alerts: fraud-alerts
     notifications: notifications
-    notifications-dlq: notifications-dlq
     account-activity: account-activity
     transfers: transfers
     loans: loans

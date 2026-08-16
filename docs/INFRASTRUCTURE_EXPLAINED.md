@@ -119,17 +119,19 @@ volume-layout change in `docker-compose.yml`.
 
 ## Kafka 4.3.1
 
-15 topics, all provisioned as `NewTopic` beans in `KafkaConfig.java` (broker
+14 topics, all provisioned as `NewTopic` beans in `KafkaConfig.java` (broker
 `auto.create.topics.enable=false`, so the app's bean definitions are the sole source of truth for
 partition counts — see [KAFKA_SETUP.md](KAFKA_SETUP.md) for the incident where a race between
 app-provisioning and broker auto-create silently produced a topic with the wrong partition count).
 
 Full topic/producer/consumer table lives in [KAFKA_SETUP.md](KAFKA_SETUP.md); the shape worth
 understanding is: `orders → orders-validated → trades` (the FX/stock desk) and
-`payments → payments-validated → settlements` (with `ledger-entries`, `fraud-alerts`,
-`notifications` fanning off along the way) are two independent event chains, plus
-`account-activity`/`transfers`/`loans` as broadcast/audit-only topics for the newer banking
-features that don't currently have a downstream consumer.
+`payments → payments-validated` (settlement itself is an in-process saga, not
+Kafka-choreographed — with `ledger-entries`, `fraud-alerts`, `notifications` fanning off along the
+way) are two independent event chains, plus `account-activity`/`transfers`/`loans` as
+broadcast/audit-only topics for the newer banking features that don't currently have a downstream
+consumer. An earlier `settlements` topic that had neither a producer nor a consumer was removed
+during a later cleanup pass rather than left as an unexplained provisioned-but-unused topic.
 
 Two real production-grade bugs were found and fixed in this subsystem, both documented with full
 root-cause writeups in [KAFKA_SETUP.md](KAFKA_SETUP.md):

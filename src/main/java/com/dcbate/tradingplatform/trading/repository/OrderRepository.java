@@ -12,8 +12,6 @@ import org.springframework.data.repository.query.Param;
 /** {@code sumOpenNotionalByClientId} backs the Risk Service's notional-limit check. */
 public interface OrderRepository extends JpaRepository<Order, UUID> {
 
-    List<Order> findByClientIdAndStatusIn(String clientId, List<OrderStatus> statuses);
-
     List<Order> findByClientIdOrderByCreatedAtDesc(String clientId);
 
     @Query(

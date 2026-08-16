@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ArrowLeft, Landmark, PartyPopper, SkullIcon, TimerOff } from 'lucide-react'
+import { ArrowLeft, Landmark, PartyPopper, SkullIcon, Sparkles, TimerOff } from 'lucide-react'
 import { apiErrorMessage } from '../api/client'
 import {
+  useGameDebrief,
   useGameDifficulties,
   useGameMarket,
   useGameSession,
@@ -16,7 +17,14 @@ import {
 } from '../hooks/useGame'
 import { formatCountdown, formatMoney, formatQuantity, sanitizeWholeNumberInput } from '../lib/format'
 import { btnDanger, btnGhost, btnGhostSm, btnPrimary, btnSuccess, card, input, inputSm, label, listSection, sectionTitle } from '../lib/styles'
-import type { GameLoanResponse, GamePriceResponse, GameSessionResponse, GameTradeResponse, OrderSide } from '../types/api'
+import type {
+  GameLoanResponse,
+  GamePriceResponse,
+  GameSessionResponse,
+  GameSymbolPerformanceResponse,
+  GameTradeResponse,
+  OrderSide,
+} from '../types/api'
 
 interface PricePoint {
   time: string
@@ -430,10 +438,45 @@ function TradeForm({
   )
 }
 
+// One row per symbol traded or still held, sorted best-to-worst — bars scale against whichever
+// symbol moved the most so a +£40 and a +£4,000 session don't render as visually identical.
+function SymbolPerformanceChart({ symbolPerformance }: { symbolPerformance: GameSymbolPerformanceResponse[] }) {
+  if (symbolPerformance.length === 0) {
+    return null
+  }
+  const maxAbs = Math.max(...symbolPerformance.map((p) => Math.abs(p.totalPnl)), 1)
+  return (
+    <div className={card}>
+      <h2 className={sectionTitle}>Biggest gains and losses</h2>
+      <div className="mt-3 flex flex-col gap-2.5">
+        {symbolPerformance.map((p) => {
+          const positive = p.totalPnl >= 0
+          const widthPercent = Math.max(4, (Math.abs(p.totalPnl) / maxAbs) * 100)
+          return (
+            <div key={p.symbol} className="flex items-center gap-3">
+              <span className="w-16 shrink-0 font-mono text-xs font-semibold text-ink-700">{p.symbol}</span>
+              <div className="h-5 flex-1 overflow-hidden rounded bg-canvas">
+                <div className={`h-full rounded ${positive ? 'bg-success-500' : 'bg-error-500'}`} style={{ width: `${widthPercent}%` }} />
+              </div>
+              <span className={`w-24 shrink-0 text-right font-mono text-xs font-semibold ${positive ? 'text-success-600' : 'text-error-600'}`}>
+                {formatMoney(p.totalPnl, 'USD')}
+              </span>
+              <span className="w-28 shrink-0 text-right text-xs text-ink-400">
+                {p.quantityHeld > 0 ? `${formatQuantity(p.quantityHeld)} still held` : 'closed out'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function EndScreen({ session, sessionId }: { session: GameSessionResponse; sessionId: string }) {
   const navigate = useNavigate()
   const startGame = useStartGame()
   const { data: trades } = useGameTrades(sessionId)
+  const { data: debrief, isLoading: debriefLoading } = useGameDebrief(sessionId)
 
   const won = session.status === 'WON'
   const bankrupt = session.status === 'LOST_BANKRUPT'
@@ -468,6 +511,23 @@ function EndScreen({ session, sessionId }: { session: GameSessionResponse; sessi
           {!won && session.goalAmount > 0 && <> — {Math.max(0, (session.netWorth / session.goalAmount) * 100).toFixed(0)}% of the way there</>}
         </p>
       </div>
+
+      <div className={card}>
+        <div className="flex items-center gap-2">
+          <h2 className={sectionTitle}>Debrief</h2>
+          {debrief?.aiGenerated && (
+            <span className="flex items-center gap-1 rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-600 dark:bg-primary-500/15 dark:text-primary-400">
+              <Sparkles size={10} strokeWidth={2.5} />
+              AI-written
+            </span>
+          )}
+        </div>
+        <p className="mt-2 text-sm text-ink-600">
+          {debriefLoading ? 'Putting together your debrief…' : (debrief?.summary ?? "Couldn't generate a debrief for this session.")}
+        </p>
+      </div>
+
+      {debrief && <SymbolPerformanceChart symbolPerformance={debrief.symbolPerformance} />}
 
       {closedTrades.length > 0 && (
         <div className={card}>

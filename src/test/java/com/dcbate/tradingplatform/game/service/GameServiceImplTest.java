@@ -6,19 +6,25 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
+import com.dcbate.tradingplatform.ai.GameCoach;
+import com.dcbate.tradingplatform.ai.GameDebriefResult;
 import com.dcbate.tradingplatform.domain.GameDifficulty;
 import com.dcbate.tradingplatform.domain.GameLoan;
 import com.dcbate.tradingplatform.domain.GamePosition;
 import com.dcbate.tradingplatform.domain.GameSession;
 import com.dcbate.tradingplatform.domain.GameStatus;
+import com.dcbate.tradingplatform.domain.GameTrade;
 import com.dcbate.tradingplatform.domain.OrderSide;
 import com.dcbate.tradingplatform.exception.GameInsufficientFundsException;
 import com.dcbate.tradingplatform.exception.GameInsufficientPositionException;
 import com.dcbate.tradingplatform.exception.GameSessionNotActiveException;
 import com.dcbate.tradingplatform.exception.GameSessionNotFoundException;
+import com.dcbate.tradingplatform.exception.GameSessionStillInProgressException;
+import com.dcbate.tradingplatform.game.api.dto.GameDebriefResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameSessionResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameStatsResponse;
+import com.dcbate.tradingplatform.game.api.dto.GameSymbolPerformanceResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameTradeRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameTradeResponse;
 import com.dcbate.tradingplatform.game.repository.GameLoanRepository;
@@ -58,6 +64,9 @@ class GameServiceImplTest {
     @Mock
     private GameMarketService marketService;
 
+    @Mock
+    private GameCoach gameCoach;
+
     private GameServiceImpl gameService;
 
     private final CallerPrincipal owner = new CallerPrincipal("client-1", false);
@@ -65,7 +74,7 @@ class GameServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        gameService = new GameServiceImpl(sessionRepository, positionRepository, loanRepository, tradeRepository, marketService);
+        gameService = new GameServiceImpl(sessionRepository, positionRepository, loanRepository, tradeRepository, marketService, gameCoach);
     }
 
     private GameSession session(GameDifficulty difficulty, BigDecimal cash, Instant endsAt) {
@@ -364,5 +373,60 @@ class GameServiceImplTest {
     @Test
     void getStatsDeniedForNonOwner() {
         assertThatThrownBy(() -> gameService.getStats("client-1", otherClient)).isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void getDebriefThrowsWhenSessionStillInProgress() {
+        GameSession active = session(GameDifficulty.APPRENTICE, new BigDecimal("1000"), Instant.now().plusSeconds(600));
+        when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+        when(loanRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> gameService.getDebrief(active.getSessionId(), owner))
+                .isInstanceOf(GameSessionStillInProgressException.class);
+    }
+
+    @Test
+    void getDebriefAggregatesPerSymbolPnlAndDelegatesToTheCoach() {
+        GameSession ended = GameSession.builder()
+                .sessionId(UUID.randomUUID()).clientId("client-1").difficulty(GameDifficulty.APPRENTICE)
+                .status(GameStatus.WON).cash(new BigDecimal("2000")).finalNetWorth(new BigDecimal("11000"))
+                .startedAt(Instant.now().minusSeconds(900)).endsAt(Instant.now()).build();
+        // Closed out AAPL for a realized profit; still holding MSFT with an unrealized gain.
+        GameTrade buyAapl = GameTrade.builder().tradeId(UUID.randomUUID()).sessionId(ended.getSessionId()).symbol("AAPL")
+                .side(OrderSide.BUY).quantity(new BigDecimal("5")).price(new BigDecimal("100")).fee(BigDecimal.ZERO)
+                .realizedPnl(null).createdAt(Instant.now().minusSeconds(800)).build();
+        GameTrade sellAapl = GameTrade.builder().tradeId(UUID.randomUUID()).sessionId(ended.getSessionId()).symbol("AAPL")
+                .side(OrderSide.SELL).quantity(new BigDecimal("5")).price(new BigDecimal("150")).fee(BigDecimal.ZERO)
+                .realizedPnl(new BigDecimal("250")).createdAt(Instant.now().minusSeconds(700)).build();
+        GamePosition msft = GamePosition.builder().positionId(UUID.randomUUID()).sessionId(ended.getSessionId())
+                .symbol("MSFT").quantity(new BigDecimal("10")).avgCost(new BigDecimal("200")).build();
+
+        when(sessionRepository.findById(ended.getSessionId())).thenReturn(Optional.of(ended));
+        when(tradeRepository.findBySessionIdOrderByCreatedAtDesc(ended.getSessionId())).thenReturn(List.of(sellAapl, buyAapl));
+        when(positionRepository.findBySessionId(ended.getSessionId())).thenReturn(List.of(msft));
+        when(loanRepository.findBySessionId(ended.getSessionId())).thenReturn(List.of());
+        when(marketService.currentPrice(GameDifficulty.APPRENTICE, "MSFT")).thenReturn(Optional.of(new BigDecimal("230")));
+        when(gameCoach.debrief(any())).thenReturn(new GameDebriefResult("You won by riding MSFT higher.", true));
+
+        GameDebriefResponse response = gameService.getDebrief(ended.getSessionId(), owner);
+
+        assertThat(response.aiGenerated()).isTrue();
+        assertThat(response.summary()).isEqualTo("You won by riding MSFT higher.");
+        assertThat(response.symbolPerformance()).hasSize(2);
+        GameSymbolPerformanceResponse aapl = response.symbolPerformance().stream().filter(p -> p.symbol().equals("AAPL")).findFirst().orElseThrow();
+        assertThat(aapl.realizedPnl()).isEqualByComparingTo("250");
+        assertThat(aapl.quantityHeld()).isEqualByComparingTo("0");
+        GameSymbolPerformanceResponse msftPnl = response.symbolPerformance().stream().filter(p -> p.symbol().equals("MSFT")).findFirst().orElseThrow();
+        assertThat(msftPnl.unrealizedPnl()).isEqualByComparingTo("300");
+        assertThat(msftPnl.quantityHeld()).isEqualByComparingTo("10");
+    }
+
+    @Test
+    void getDebriefDeniedForNonOwner() {
+        GameSession active = session(GameDifficulty.APPRENTICE, new BigDecimal("1000"), Instant.now().plusSeconds(600));
+        when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
+
+        assertThatThrownBy(() -> gameService.getDebrief(active.getSessionId(), otherClient)).isInstanceOf(AccessDeniedException.class);
     }
 }

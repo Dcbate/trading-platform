@@ -20,10 +20,6 @@ export function formatMoney(amount: number, currency: string): string {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(amount)
 }
 
-export function formatNumber(amount: number): string {
-  return new Intl.NumberFormat('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)
-}
-
 // Share/unit quantities come off the backend as BigDecimal with up to 8 decimal places, which
 // can carry tiny precision noise (e.g. 2.00000002) that isn't a real fractional share — round to
 // 4 decimals and drop trailing zeros so a whole-share buy just reads "2", not "2.00000002".

@@ -3,7 +3,7 @@
 ## Topic provisioning: fixed, not a workaround
 
 Earlier in this project's Spring Boot 4.1.0 migration, the app's Kafka `AdminClient` appeared unable
-to create the 15 application topics (`orders`, `payments`, `loans`, etc. — the full list is defined
+to create the application topics (`orders`, `payments`, `loans`, etc. — the full list is defined
 as `NewTopic` beans in
 [`KafkaConfig.java`](../src/main/java/com/dcbate/tradingplatform/config/KafkaConfig.java)), and I
 created topics manually via the Kafka CLI as a stopgap. **That workaround is no longer needed.** I
@@ -42,7 +42,6 @@ topics on startup.
 | `payments` | 20 | `PaymentServiceImpl` | `PaymentEventConsumer` → `FraudDetectionService` |
 | `payments-validated` | 10 | `FraudDetectionServiceImpl` | `SettlementEventConsumer` → `SettlementService` |
 | `ledger-entries` | 10 | `LedgerServiceImpl` | broadcast/audit only |
-| `settlements` | 10 | provisioned, currently unused — settlement is an in-process saga (`SettlementServiceImpl`), not Kafka-choreographed | — |
 | `fraud-alerts` | 5 | `FraudDetectionServiceImpl` | broadcast/audit only |
 | `notifications` | 5 | `FraudDetectionServiceImpl`, `SettlementServiceImpl`, `ReconciliationServiceImpl` | `NotificationEventConsumer`, with Spring Kafka's `@RetryableTopic` (exponential backoff 1s/2s/4s/8s/16s, 6 tries total) |
 | `notifications-dlq` | auto-created by `@RetryableTopic` | — | dead-letter sink after retries exhaust |

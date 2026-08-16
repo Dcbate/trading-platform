@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
 import type {
+  GameDebriefResponse,
   GameDifficultyCode,
   GameDifficultyResponse,
   GamePriceResponse,
@@ -65,6 +66,18 @@ export function useGameTrades(sessionId: string | undefined) {
     enabled: !!sessionId,
     refetchInterval: GAME_POLL_INTERVAL_MS,
     refetchIntervalInBackground: true,
+  })
+}
+
+export function useGameDebrief(sessionId: string | undefined) {
+  return useQuery({
+    queryKey: ['game', 'debrief', sessionId],
+    queryFn: () => apiClient.get<GameDebriefResponse>(`/v1/game/sessions/${sessionId}/debrief`).then((r) => r.data),
+    enabled: !!sessionId,
+    // A finished session's trade/loan history never changes — one fetch is all this needs, and
+    // it saves calling out to Claude again on every accidental re-render.
+    staleTime: Infinity,
+    retry: false,
   })
 }
 
