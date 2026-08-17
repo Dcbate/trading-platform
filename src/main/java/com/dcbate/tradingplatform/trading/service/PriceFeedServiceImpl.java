@@ -45,7 +45,14 @@ public class PriceFeedServiceImpl implements PriceFeedService {
             Map.entry("AMZN", new BigDecimal("180.00")),
             Map.entry("NVDA", new BigDecimal("875.00")),
             Map.entry("TSLA", new BigDecimal("250.00")),
-            Map.entry("META", new BigDecimal("505.00")));
+            Map.entry("META", new BigDecimal("505.00")),
+            // Crypto seeds — same synthetic random-walk model as everything else above, quoted
+            // against USD by convention (how every real crypto exchange quotes it) regardless of
+            // the funding account's own currency.
+            Map.entry("BTC/USD", new BigDecimal("65000.00")),
+            Map.entry("ETH/USD", new BigDecimal("3500.00")),
+            Map.entry("SOL/USD", new BigDecimal("150.00")),
+            Map.entry("XRP/USD", new BigDecimal("0.60")));
     private static final BigDecimal DEFAULT_SEED_PRICE = new BigDecimal("1.0000");
     private static final Duration CACHE_TTL = Duration.ofMinutes(1);
     private static final String CACHE_KEY_PREFIX = "price:";

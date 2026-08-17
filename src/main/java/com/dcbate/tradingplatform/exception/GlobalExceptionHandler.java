@@ -28,12 +28,12 @@ public class GlobalExceptionHandler {
             CurrencyMismatchException.class, RateUnavailableException.class, LoanNotActiveException.class,
             EmailAlreadyRegisteredException.class, InvalidAccountClosureException.class, InsufficientPositionException.class,
             GameSessionNotActiveException.class, GameInsufficientFundsException.class, GameInsufficientPositionException.class,
-            GameSessionStillInProgressException.class})
+            GameSessionStillInProgressException.class, AccountTypeMismatchException.class, CryptoPriceUnavailableException.class})
     public ResponseEntity<ApiError> handleConflict(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, List.of(e.getMessage()), request);
     }
 
-    @ExceptionHandler(InvalidOrderQuantityException.class)
+    @ExceptionHandler({InvalidOrderQuantityException.class, UnsupportedCryptoSymbolException.class})
     public ResponseEntity<ApiError> handleBadRequest(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, List.of(e.getMessage()), request);
     }

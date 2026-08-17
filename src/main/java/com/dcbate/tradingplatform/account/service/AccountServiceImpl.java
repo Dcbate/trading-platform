@@ -6,11 +6,12 @@ import com.dcbate.tradingplatform.account.api.dto.BalanceSummaryResponse;
 import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.account.api.dto.CurrencyBalance;
-import com.dcbate.tradingplatform.account.repository.AccountActivityRepository;
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
+import com.dcbate.tradingplatform.activity.event.ActivityEventListener;
+import com.dcbate.tradingplatform.activity.event.ActivityRecordedEvent;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
-import com.dcbate.tradingplatform.domain.AccountActivity;
+import com.dcbate.tradingplatform.domain.ActivityType;
 import com.dcbate.tradingplatform.domain.AccountActivityType;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.exception.AccountNotActiveException;
@@ -35,6 +36,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,7 +47,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccountServiceImpl implements AccountService {
 
     private final AccountRepository accountRepository;
-    private final AccountActivityRepository accountActivityRepository;
+    private final ApplicationEventPublisher eventPublisher;
     private final KafkaEventPublisher kafkaEventPublisher;
     private final KafkaTopicsProperties topics;
     private final PriceFeedService priceFeedService;
@@ -115,7 +117,8 @@ public class AccountServiceImpl implements AccountService {
         account.setBalance(account.getBalance().add(amount));
         Account saved = accountRepository.save(account);
 
-        publishActivity(saved, AccountActivityType.DEPOSIT, amount, null, null);
+        recordActivity(saved, ActivityType.DEPOSIT, amount, "Deposit into " + accountLabel(saved), saved.getCurrency());
+        publishKafkaEvent(saved, AccountActivityType.DEPOSIT, amount, null, null);
         log.info("Deposit: accountId={}, amount={}, balanceAfter={}", accountId, amount, saved.getBalance());
         return AccountResponse.from(saved);
     }
@@ -130,7 +133,8 @@ public class AccountServiceImpl implements AccountService {
         account.setBalance(account.getBalance().subtract(amount));
         Account saved = accountRepository.save(account);
 
-        publishActivity(saved, AccountActivityType.WITHDRAWAL, amount, null, null);
+        recordActivity(saved, ActivityType.WITHDRAWAL, amount.negate(), "Withdrawal from " + accountLabel(saved), saved.getCurrency());
+        publishKafkaEvent(saved, AccountActivityType.WITHDRAWAL, amount, null, null);
         log.info("Withdrawal: accountId={}, amount={}, balanceAfter={}", accountId, amount, saved.getBalance());
         return AccountResponse.from(saved);
     }
@@ -154,7 +158,9 @@ public class AccountServiceImpl implements AccountService {
         accountRepository.save(from);
         Account savedTo = accountRepository.save(to);
 
-        publishActivity(from, AccountActivityType.CONVERSION, amount, to.getAccountId(), rate);
+        recordActivity(from, ActivityType.CONVERSION, amount.negate(),
+                "Converted from %s to %s at rate %s".formatted(accountLabel(from), accountLabel(to), rate), from.getCurrency());
+        publishKafkaEvent(from, AccountActivityType.CONVERSION, amount, to.getAccountId(), rate);
         log.info("Conversion: fromAccountId={}, toAccountId={}, amount={}, rate={}, converted={}",
                 fromAccountId, request.toAccountId(), amount, rate, converted);
         return AccountResponse.from(savedTo);
@@ -189,7 +195,9 @@ public class AccountServiceImpl implements AccountService {
             accountRepository.save(destination);
             account.setBalance(BigDecimal.ZERO);
 
-            publishActivity(account, AccountActivityType.CLOSURE, balance, destinationAccountId, null);
+            recordActivity(account, ActivityType.ACCOUNT_CLOSURE, balance.negate(),
+                    "Closed %s, balance swept to %s".formatted(accountLabel(account), accountLabel(destination)), account.getCurrency());
+            publishKafkaEvent(account, AccountActivityType.CLOSURE, balance, destinationAccountId, null);
             log.info("Account closed with balance swept: accountId={}, clientId={}, destinationAccountId={}, amount={}",
                     accountId, account.getClientId(), destinationAccountId, balance);
         } else {
@@ -228,23 +236,27 @@ public class AccountServiceImpl implements AccountService {
         return accountRepository.findById(accountId).orElseThrow(() -> new AccountNotFoundException(accountId));
     }
 
-    private void publishActivity(Account account, AccountActivityType type, BigDecimal amount, UUID relatedAccountId, BigDecimal rate) {
-        Instant now = Instant.now();
-        accountActivityRepository.save(AccountActivity.builder()
-                .activityId(UUID.randomUUID())
-                .accountId(account.getAccountId())
-                .clientId(account.getClientId())
-                .type(type)
-                .amount(amount)
-                .balanceAfter(account.getBalance())
-                .relatedAccountId(relatedAccountId)
-                .rate(rate)
-                .occurredAt(now)
-                .build());
+    /**
+     * Publishes the one immutable activity record this event produces — description and signed
+     * amount are computed here, at the point of cause, because this method already has every
+     * object it needs (the account, the counterparty) in hand. {@link ActivityEventListener}
+     * turns this into a persisted row once this method's transaction actually commits; see its
+     * javadoc for why that happens on a separate listener rather than inline here.
+     */
+    private void recordActivity(Account account, ActivityType type, BigDecimal signedAmount, String description, String currency) {
+        eventPublisher.publishEvent(new ActivityRecordedEvent(
+                account.getClientId(), account.getAccountId(), type, signedAmount, currency, description));
+    }
+
+    private void publishKafkaEvent(Account account, AccountActivityType type, BigDecimal amount, UUID relatedAccountId, BigDecimal rate) {
         kafkaEventPublisher.publish(
                 topics.accountActivity(),
                 account.getClientId(),
                 new AccountActivityEvent(account.getAccountId(), account.getClientId(), type, amount,
-                        account.getBalance(), relatedAccountId, rate, now));
+                        account.getBalance(), relatedAccountId, rate, Instant.now()));
+    }
+
+    private String accountLabel(Account account) {
+        return account.getNickname() != null ? account.getNickname() : account.getAccountType() + " " + account.getCurrency();
     }
 }

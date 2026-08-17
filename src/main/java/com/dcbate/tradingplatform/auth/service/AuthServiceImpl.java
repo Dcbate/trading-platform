@@ -61,7 +61,7 @@ public class AuthServiceImpl implements AuthService {
         String clientId = user.getUserId().toString();
 
         accountService.openAccount(
-                new AccountRequest(clientId, AccountType.CHECKING, "USD", null, BigDecimal.ZERO),
+                new AccountRequest(clientId, AccountType.CHECKING, "GBP", null, BigDecimal.ZERO),
                 new CallerPrincipal(clientId, false));
 
         log.info("User signed up: userId={}, email={}", user.getUserId(), user.getEmail());

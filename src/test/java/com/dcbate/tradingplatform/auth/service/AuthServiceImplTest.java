@@ -71,7 +71,7 @@ class AuthServiceImplTest {
         when(passwordEncoder.encode("Str0ng!Passw0rd")).thenReturn("hashed");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
         when(accountService.openAccount(any(AccountRequest.class), any(CallerPrincipal.class)))
-                .thenReturn(new AccountResponse(UUID.randomUUID(), "ignored", AccountType.CHECKING, "USD", null,
+                .thenReturn(new AccountResponse(UUID.randomUUID(), "ignored", AccountType.CHECKING, "GBP", null,
                         java.math.BigDecimal.ZERO, AccountStatus.ACTIVE, Instant.now()));
 
         TokenPair tokens = authService.signup(new SignupRequest("new@example.com", "Str0ng!Passw0rd"));
@@ -83,7 +83,7 @@ class AuthServiceImplTest {
         var accountRequestCaptor = org.mockito.ArgumentCaptor.forClass(AccountRequest.class);
         verify(accountService).openAccount(accountRequestCaptor.capture(), any(CallerPrincipal.class));
         assertThat(accountRequestCaptor.getValue().accountType()).isEqualTo(AccountType.CHECKING);
-        assertThat(accountRequestCaptor.getValue().currency()).isEqualTo("USD");
+        assertThat(accountRequestCaptor.getValue().currency()).isEqualTo("GBP");
         assertThat(accountRequestCaptor.getValue().clientId()).isEqualTo(tokens.response().clientId());
     }
 

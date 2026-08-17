@@ -12,6 +12,7 @@ import { TransferPage } from './pages/TransferPage'
 import { LoansPage } from './pages/LoansPage'
 import { FXMarketsPage } from './pages/FXMarketsPage'
 import { TradingPage } from './pages/TradingPage'
+import { CryptoPage } from './pages/CryptoPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { GameLobbyPage } from './pages/GameLobbyPage'
 import { GamePlayPage } from './pages/GamePlayPage'
@@ -45,6 +46,7 @@ function App() {
             <Route path="/loans" element={<LoansPage />} />
             <Route path="/fx" element={<FXMarketsPage />} />
             <Route path="/trading" element={<TradingPage />} />
+            <Route path="/crypto" element={<CryptoPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

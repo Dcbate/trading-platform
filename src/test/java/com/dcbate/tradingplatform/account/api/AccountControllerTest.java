@@ -52,6 +52,7 @@ class AccountControllerTest {
         TradingProperties tradingProperties = new TradingProperties(
                 List.of("EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD"),
                 List.of("AAPL", "MSFT"),
+                List.of("BTC/USD", "ETH/USD"),
                 new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
         mockMvc = MockMvcBuilders.standaloneSetup(new AccountController(accountService, tradingProperties))
                 .setControllerAdvice(new GlobalExceptionHandler())

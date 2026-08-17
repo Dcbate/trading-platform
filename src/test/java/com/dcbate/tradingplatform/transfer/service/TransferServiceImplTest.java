@@ -6,8 +6,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
+import com.dcbate.tradingplatform.activity.event.ActivityRecordedEvent;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
+import com.dcbate.tradingplatform.domain.ActivityType;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.domain.AccountType;
 import com.dcbate.tradingplatform.domain.Transfer;
@@ -23,13 +25,16 @@ import com.dcbate.tradingplatform.transfer.repository.TransferRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,6 +45,9 @@ class TransferServiceImplTest {
 
     @Mock
     private AccountRepository accountRepository;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @Mock
     private KafkaEventPublisher kafkaEventPublisher;
@@ -58,7 +66,7 @@ class TransferServiceImplTest {
                 "payments", "payments-validated", "ledger-entries", "fraud-alerts", "notifications",
                 "account-activity", "transfers", "loans");
         transferService = new TransferServiceImpl(
-                transferRepository, accountRepository, kafkaEventPublisher, topics, new SimpleMeterRegistry());
+                transferRepository, accountRepository, eventPublisher, kafkaEventPublisher, topics, new SimpleMeterRegistry());
     }
 
     private Account account(UUID accountId, String clientId, String currency, BigDecimal balance) {
@@ -81,6 +89,16 @@ class TransferServiceImplTest {
         assertThat(response.status()).isEqualTo(TransferStatus.COMPLETED);
         assertThat(response.fromClientId()).isEqualTo("client-1");
         assertThat(response.toClientId()).isEqualTo("client-2");
+
+        ArgumentCaptor<ActivityRecordedEvent> captor = ArgumentCaptor.forClass(ActivityRecordedEvent.class);
+        org.mockito.Mockito.verify(eventPublisher, org.mockito.Mockito.times(2)).publishEvent(captor.capture());
+        List<ActivityRecordedEvent> events = captor.getAllValues();
+        assertThat(events).extracting(ActivityRecordedEvent::type)
+                .containsExactlyInAnyOrder(ActivityType.TRANSFER_OUT, ActivityType.TRANSFER_IN);
+        assertThat(events).filteredOn(e -> e.type() == ActivityType.TRANSFER_OUT)
+                .first().satisfies(e -> assertThat(e.amount()).isEqualByComparingTo("-40.00"));
+        assertThat(events).filteredOn(e -> e.type() == ActivityType.TRANSFER_IN)
+                .first().satisfies(e -> assertThat(e.amount()).isEqualByComparingTo("40.00"));
     }
 
     @Test

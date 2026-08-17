@@ -67,7 +67,8 @@ class OrderServiceImplTest {
                 "payments", "payments-validated", "ledger-entries", "fraud-alerts", "notifications",
                 "account-activity", "transfers", "loans");
         TradingProperties tradingProperties = new TradingProperties(
-                java.util.List.of("EUR/USD"), java.util.List.of("AAPL"), new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
+                java.util.List.of("EUR/USD"), java.util.List.of("AAPL"), java.util.List.of("BTC/USD"),
+                new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
         orderService = new OrderServiceImpl(orderRepository, accountRepository, positionRepository, kafkaEventPublisher, topics, tradingProperties);
     }
 
@@ -144,6 +145,21 @@ class OrderServiceImplTest {
         OrderResponse response = orderService.submitOrder(request, owner);
 
         assertThat(response.quantity()).isEqualByComparingTo("10.50");
+    }
+
+    @Test
+    void submitCryptoOrderWithFractionalQuantitySucceeds() {
+        UUID accountId = UUID.randomUUID();
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(brokerageAccount(accountId, new BigDecimal("5000.00"))));
+        when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+        // Crypto isn't in stockSymbols, so the whole-unit check doesn't apply — 0.001 BTC is a
+        // perfectly ordinary crypto order, unlike 0.001 of a share.
+        OrderRequest request = new OrderRequest("client-1", "BTC/USD", OrderSide.BUY, new BigDecimal("0.001"), new BigDecimal("65000.00"), accountId);
+
+        OrderResponse response = orderService.submitOrder(request, owner);
+
+        assertThat(response.quantity()).isEqualByComparingTo("0.001");
+        assertThat(response.accountId()).isEqualTo(accountId);
     }
 
     @Test

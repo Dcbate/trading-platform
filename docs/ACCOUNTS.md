@@ -17,12 +17,16 @@ preserve every time I touched money.
 
 ## 2. Account types
 
-`AccountType`: `CHECKING`, `SAVINGS`, `FX_TRADING`. All three are the same entity shape — type is a
-label, not a different schema — because I decided "one balance, one currency, many uses" was the
-right scope, not type-specific behavior. No savings interest, no withdrawal limits by type; those
-would be realistic follow-ons, I just didn't build them. `FX_TRADING` is what funds/receives orders
-on the FX desk ([TRADING_SYSTEM.md](TRADING_SYSTEM.md)) — a client can hold one of these alongside
-an ordinary `CHECKING` account, which is what "FX trading is an account type" means in practice.
+`AccountType`: `CHECKING`, `SAVINGS`, `FX_TRADING`, `BROKERAGE`, `CRYPTO`. All five are the same
+entity shape — type is a label, not a different schema — because I decided "one balance, one
+currency, many uses" was the right scope, not type-specific behavior. No savings interest, no
+withdrawal limits by type; those would be realistic follow-ons, I just didn't build them.
+`FX_TRADING`/`BROKERAGE`/`CRYPTO` are the conventional homes for FX, stock, and crypto orders
+respectively ([TRADING_SYSTEM.md](TRADING_SYSTEM.md), [CRYPTO.md](CRYPTO.md)) — a client can hold
+any of these alongside an ordinary `CHECKING` account. **Important:** this is a frontend/demo-data
+naming convention, not something the backend enforces — `ExecutionServiceImpl.settleFill()` runs
+for any order carrying a funded `accountId`, regardless of this enum value. See
+[DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) for the gap that leaves open.
 
 A client can open as many accounts, of any mix of types and currencies, as they want:
 `POST /v1/accounts {clientId, accountType, currency, openingBalance}`. List them with

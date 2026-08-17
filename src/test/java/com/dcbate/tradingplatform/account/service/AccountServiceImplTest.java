@@ -3,6 +3,7 @@ package com.dcbate.tradingplatform.account.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dcbate.tradingplatform.account.api.dto.AccountRequest;
@@ -11,10 +12,11 @@ import com.dcbate.tradingplatform.account.api.dto.BalanceSummaryResponse;
 import com.dcbate.tradingplatform.account.api.dto.CloseAccountRequest;
 import com.dcbate.tradingplatform.account.api.dto.ConvertRequest;
 import com.dcbate.tradingplatform.account.api.dto.CurrencyBalance;
-import com.dcbate.tradingplatform.account.repository.AccountActivityRepository;
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
+import com.dcbate.tradingplatform.activity.event.ActivityRecordedEvent;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
+import com.dcbate.tradingplatform.domain.ActivityType;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.domain.AccountType;
 import com.dcbate.tradingplatform.exception.AccountNotActiveException;
@@ -34,8 +36,10 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
@@ -45,7 +49,7 @@ class AccountServiceImplTest {
     private AccountRepository accountRepository;
 
     @Mock
-    private AccountActivityRepository accountActivityRepository;
+    private ApplicationEventPublisher eventPublisher;
 
     @Mock
     private KafkaEventPublisher kafkaEventPublisher;
@@ -65,7 +69,7 @@ class AccountServiceImplTest {
                 "orders", "orders-validated", "trades", "prices", "risk-alerts",
                 "payments", "payments-validated", "ledger-entries", "fraud-alerts", "notifications",
                 "account-activity", "transfers", "loans");
-        accountService = new AccountServiceImpl(accountRepository, accountActivityRepository, kafkaEventPublisher, topics, priceFeedService);
+        accountService = new AccountServiceImpl(accountRepository, eventPublisher, kafkaEventPublisher, topics, priceFeedService);
     }
 
     private Account account(UUID accountId, String clientId, String currency, BigDecimal balance) {
@@ -166,6 +170,13 @@ class AccountServiceImplTest {
         AccountResponse response = accountService.deposit(accountId, new BigDecimal("50.00"), owner);
 
         assertThat(response.balance()).isEqualByComparingTo("150.00");
+
+        ArgumentCaptor<ActivityRecordedEvent> captor = ArgumentCaptor.forClass(ActivityRecordedEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue().type()).isEqualTo(ActivityType.DEPOSIT);
+        assertThat(captor.getValue().amount()).isEqualByComparingTo("50.00");
+        assertThat(captor.getValue().currency()).isEqualTo("USD");
+        assertThat(captor.getValue().accountId()).isEqualTo(accountId);
     }
 
     @Test

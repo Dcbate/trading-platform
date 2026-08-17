@@ -1,11 +1,13 @@
 package com.dcbate.tradingplatform.loan.service;
 
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
+import com.dcbate.tradingplatform.activity.event.ActivityEventListener;
+import com.dcbate.tradingplatform.activity.event.ActivityRecordedEvent;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
 import com.dcbate.tradingplatform.domain.AccountStatus;
+import com.dcbate.tradingplatform.domain.ActivityType;
 import com.dcbate.tradingplatform.domain.Loan;
-import com.dcbate.tradingplatform.domain.LoanActivity;
 import com.dcbate.tradingplatform.domain.LoanEventType;
 import com.dcbate.tradingplatform.domain.LoanStatus;
 import com.dcbate.tradingplatform.exception.AccountNotActiveException;
@@ -17,7 +19,6 @@ import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.kafka.event.LoanEvent;
 import com.dcbate.tradingplatform.loan.api.dto.LoanRequest;
 import com.dcbate.tradingplatform.loan.api.dto.LoanResponse;
-import com.dcbate.tradingplatform.loan.repository.LoanActivityRepository;
 import com.dcbate.tradingplatform.loan.repository.LoanRepository;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -29,6 +30,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,7 +49,7 @@ public class LoanServiceImpl implements LoanService {
     private static final int DAYS_PER_YEAR = 365;
 
     private final LoanRepository loanRepository;
-    private final LoanActivityRepository loanActivityRepository;
+    private final ApplicationEventPublisher eventPublisher;
     private final AccountRepository accountRepository;
     private final KafkaEventPublisher kafkaEventPublisher;
     private final KafkaTopicsProperties topics;
@@ -78,7 +80,8 @@ public class LoanServiceImpl implements LoanService {
                 .lastAccrualAt(now)
                 .build());
 
-        publishEvent(loan, LoanEventType.ORIGINATED, request.principal());
+        publishKafkaEvent(loan, LoanEventType.ORIGINATED, request.principal());
+        recordActivity(loan, account, ActivityType.LOAN_ORIGINATED, request.principal(), "Loan originated — " + loan.getProductType());
         log.info("Loan originated: loanId={}, clientId={}, accountId={}, productType={}, principal={}, rate={}, termMonths={}",
                 loan.getLoanId(), loan.getClientId(), loan.getAccountId(), loan.getProductType(),
                 loan.getPrincipal(), loan.getInterestRateAnnualPercent(), loan.getTermMonths());
@@ -133,7 +136,9 @@ public class LoanServiceImpl implements LoanService {
         }
         Loan saved = loanRepository.save(loan);
 
-        publishEvent(saved, LoanEventType.REPAYMENT, payment);
+        publishKafkaEvent(saved, LoanEventType.REPAYMENT, payment);
+        recordActivity(saved, account, ActivityType.LOAN_REPAYMENT, payment.negate(),
+                "Loan repayment — %s outstanding".formatted(saved.getOutstandingPrincipal()));
         log.info("Loan repayment: loanId={}, payment={}, outstandingPrincipal={}, accruedInterest={}, status={}",
                 loanId, payment, saved.getOutstandingPrincipal(), saved.getAccruedInterest(), saved.getStatus());
 
@@ -183,21 +188,19 @@ public class LoanServiceImpl implements LoanService {
         return loanRepository.findById(loanId).orElseThrow(() -> new LoanNotFoundException(loanId));
     }
 
-    private void publishEvent(Loan loan, LoanEventType type, BigDecimal amount) {
-        Instant now = Instant.now();
-        loanActivityRepository.save(LoanActivity.builder()
-                .activityId(UUID.randomUUID())
-                .loanId(loan.getLoanId())
-                .clientId(loan.getClientId())
-                .type(type)
-                .amount(amount)
-                .outstandingPrincipal(loan.getOutstandingPrincipal())
-                .accruedInterest(loan.getAccruedInterest())
-                .status(loan.getStatus())
-                .occurredAt(now)
-                .build());
+    private void publishKafkaEvent(Loan loan, LoanEventType type, BigDecimal amount) {
         kafkaEventPublisher.publish(topics.loans(), loan.getClientId(), new LoanEvent(
                 loan.getLoanId(), loan.getClientId(), type, amount,
-                loan.getOutstandingPrincipal(), loan.getAccruedInterest(), loan.getStatus(), now));
+                loan.getOutstandingPrincipal(), loan.getAccruedInterest(), loan.getStatus(), Instant.now()));
+    }
+
+    /**
+     * Publishes the one immutable activity record this event produces — {@link
+     * ActivityEventListener} turns it into a persisted row once this method's transaction
+     * actually commits; see its javadoc for why.
+     */
+    private void recordActivity(Loan loan, Account account, ActivityType type, BigDecimal signedAmount, String description) {
+        eventPublisher.publishEvent(new ActivityRecordedEvent(
+                loan.getClientId(), account.getAccountId(), type, signedAmount, account.getCurrency(), description));
     }
 }

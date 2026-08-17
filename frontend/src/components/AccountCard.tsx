@@ -1,4 +1,4 @@
-import { ChevronRight, Wallet, PiggyBank, TrendingUp, LineChart } from 'lucide-react'
+import { ChevronRight, Wallet, PiggyBank, TrendingUp, LineChart, Bitcoin } from 'lucide-react'
 import type { AccountResponse } from '../types/api'
 import { accountTypeLabel, formatMoney } from '../lib/format'
 import { Badge } from './Badge'
@@ -8,6 +8,7 @@ const typeIcon: Record<AccountResponse['accountType'], typeof Wallet> = {
   SAVINGS: PiggyBank,
   FX_TRADING: TrendingUp,
   BROKERAGE: LineChart,
+  CRYPTO: Bitcoin,
 }
 
 // Each account type gets its own colour, not one uniform blue chip — a small bit of the
@@ -17,6 +18,7 @@ const typeColor: Record<AccountResponse['accountType'], string> = {
   SAVINGS: 'bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500',
   FX_TRADING: 'bg-secondary-50 text-secondary-600 dark:bg-secondary-500/15 dark:text-secondary-400',
   BROKERAGE: 'bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-500',
+  CRYPTO: 'bg-orange-50 text-orange-600 dark:bg-orange-500/15 dark:text-orange-400',
 }
 
 const statusVariant: Record<AccountResponse['status'], 'success' | 'warning' | 'neutral'> = {

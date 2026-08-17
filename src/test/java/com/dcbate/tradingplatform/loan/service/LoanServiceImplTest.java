@@ -3,11 +3,14 @@ package com.dcbate.tradingplatform.loan.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
+import com.dcbate.tradingplatform.activity.event.ActivityRecordedEvent;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
+import com.dcbate.tradingplatform.domain.ActivityType;
 import com.dcbate.tradingplatform.domain.AccountStatus;
 import com.dcbate.tradingplatform.domain.AccountType;
 import com.dcbate.tradingplatform.domain.Loan;
@@ -18,7 +21,6 @@ import com.dcbate.tradingplatform.exception.LoanNotFoundException;
 import com.dcbate.tradingplatform.kafka.KafkaEventPublisher;
 import com.dcbate.tradingplatform.loan.api.dto.LoanRequest;
 import com.dcbate.tradingplatform.loan.api.dto.LoanResponse;
-import com.dcbate.tradingplatform.loan.repository.LoanActivityRepository;
 import com.dcbate.tradingplatform.loan.repository.LoanRepository;
 import com.dcbate.tradingplatform.security.CallerPrincipal;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -30,8 +32,10 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,7 +45,7 @@ class LoanServiceImplTest {
     private LoanRepository loanRepository;
 
     @Mock
-    private LoanActivityRepository loanActivityRepository;
+    private ApplicationEventPublisher eventPublisher;
 
     @Mock
     private AccountRepository accountRepository;
@@ -62,7 +66,7 @@ class LoanServiceImplTest {
                 "payments", "payments-validated", "ledger-entries", "fraud-alerts", "notifications",
                 "account-activity", "transfers", "loans");
         loanService = new LoanServiceImpl(
-                loanRepository, loanActivityRepository, accountRepository, kafkaEventPublisher, topics, new SimpleMeterRegistry());
+                loanRepository, eventPublisher, accountRepository, kafkaEventPublisher, topics, new SimpleMeterRegistry());
     }
 
     private Account account(BigDecimal balance) {
@@ -97,6 +101,12 @@ class LoanServiceImplTest {
         assertThat(response.productType()).isEqualTo(LoanProductType.PERSONAL_SHORT);
         assertThat(response.termMonths()).isEqualTo(12);
         assertThat(response.interestRateAnnualPercent()).isEqualByComparingTo(LoanProductType.PERSONAL_SHORT.getInterestRateAnnualPercent());
+
+        ArgumentCaptor<ActivityRecordedEvent> captor = ArgumentCaptor.forClass(ActivityRecordedEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue().type()).isEqualTo(ActivityType.LOAN_ORIGINATED);
+        assertThat(captor.getValue().amount()).isEqualByComparingTo("1000.00");
+        assertThat(captor.getValue().currency()).isEqualTo("USD");
     }
 
     @Test

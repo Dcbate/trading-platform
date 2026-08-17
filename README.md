@@ -107,12 +107,15 @@ flowchart LR
     Fill --> Stream(("Live status stream"))
 ```
 
-**Stated plainly, not hidden:** a trade fill does *not* currently move money into your account
-balance — it updates the order/trade records, but I haven't wired the FX desk into the same
-account-balance system that deposits/transfers/loans use yet. I built the matching engine first to
-prove that part worked before connecting it to real money movement, and I ran out of runway before
-closing that gap. See [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) for the full reasoning and
-what closing it would take.
+**Stated plainly, not hidden:** a fill *does* move real money now — if an order carries a funding
+`accountId`, the fill debits/credits `Account.balance` and updates a `Position` row in the same
+transaction that updates the `Order`/`Trade` rows, verified live with a real balance change (not
+just a status flip — see [HOW_A_TRADE_FILLS.md](docs/HOW_A_TRADE_FILLS.md)). What's still a gap:
+that settlement logic treats every funded order as a single-currency instrument, which is correct
+for a stock symbol (one cash leg, one asset) but not for a genuine two-currency FX pair like
+`EUR/USD` — nothing currently stops an `accountId` from being attached to a currency-pair order,
+which would settle it incorrectly. See [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) for the full
+reasoning and what closing that specific gap would take.
 
 ## What's real and what's simulated
 
@@ -187,9 +190,9 @@ Or drive it directly with `curl`:
 ```bash
 # Open two accounts
 curl -s -X POST http://localhost:8080/v1/accounts -H 'Content-Type: application/json' \
-  -d '{"clientId":"alice","accountType":"CHECKING","currency":"USD","openingBalance":1000.00}'
+  -d '{"clientId":"alice","accountType":"CHECKING","currency":"GBP","openingBalance":1000.00}'
 curl -s -X POST http://localhost:8080/v1/accounts -H 'Content-Type: application/json' \
-  -d '{"clientId":"bob","accountType":"CHECKING","currency":"USD","openingBalance":0.00}'
+  -d '{"clientId":"bob","accountType":"CHECKING","currency":"GBP","openingBalance":0.00}'
 
 # Deposit, then transfer to another client (both at this bank — instant, no saga)
 curl -s -X POST http://localhost:8080/v1/accounts/{aliceAccountId}/deposit -H 'Content-Type: application/json' \
@@ -412,6 +415,7 @@ the Testcontainers networking environment, not in the application itself.
 | [docs/ACCOUNTS.md](docs/ACCOUNTS.md) | Accounts, transfers, conversion, loans, ownership security |
 | [docs/PAYMENT_SYSTEM.md](docs/PAYMENT_SYSTEM.md) | Cross-bank payment lifecycle and saga |
 | [docs/TRADING_SYSTEM.md](docs/TRADING_SYSTEM.md) | Order lifecycle and matching algorithm |
+| [docs/CRYPTO.md](docs/CRYPTO.md) | Crypto trading — why it reuses the existing pipeline instead of a new one |
 | [docs/HOW_A_TRADE_FILLS.md](docs/HOW_A_TRADE_FILLS.md) | Plain-English walkthrough of why an order fills (or doesn't), a real bug found live, and a copy-pasteable demo script |
 | [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) | What's real vs. simulated, and why, in full |
 | [docs/OBSERVABILITY_PROOF.md](docs/OBSERVABILITY_PROOF.md) | Live-verified tracing/metrics/dashboards, with real data |
@@ -419,6 +423,7 @@ the Testcontainers networking environment, not in the application itself.
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Runbooks, on-call procedures, alert thresholds |
 | [docs/KAFKA_SETUP.md](docs/KAFKA_SETUP.md) | Topic provisioning, and a real bug I found/fixed |
 | [docs/INTERVIEW_TALKING_POINTS.md](docs/INTERVIEW_TALKING_POINTS.md) | Verified, confident answers to the questions this project invites |
+| [docs/KNOWN_GAPS.md](docs/KNOWN_GAPS.md) | Every known gap in one place — what's simplified, what's genuinely broken, and why |
 | [HANDOFF.md](HANDOFF.md) | Point-in-time status snapshot |
 
 ## Roadmap
@@ -430,12 +435,21 @@ the Testcontainers networking environment, not in the application itself.
   itself now booting cleanly even if Kafka's down at startup; compliance-officer approval workflow;
   Kubernetes manifests + Helm chart (verified on a local `kind` cluster); distributed tracing,
   metrics, and dashboards (verified live); Gatling load tests (verified, real numbers);
-  Postgres/Kafka/Redis on latest stable versions.
-- **Remaining**: real SendGrid/Slack/bank-gateway integrations, wiring FX trade fills to move
-  account balances, API-wide rate limiting, Resilience4j around the MCP client, a real GCP Cloud Run
-  deployment (the pipeline is written but untested — I don't have cloud credentials in this
-  environment), GCP Secret Manager/KMS for secrets, fronting the hand-rolled JWT issuer with a real
-  OAuth2/OIDC identity provider.
+  Postgres/Kafka/Redis on latest stable versions; single-asset order fills settling real cash and a
+  `Position` row against a funding account (verified live — see
+  [docs/HOW_A_TRADE_FILLS.md](docs/HOW_A_TRADE_FILLS.md)); the matching engine's order book
+  surviving an app restart, verified against a real container restart; a unified bank statement
+  (`GET /v1/statement`, its own nav tab, optional per-account scoping) built on a single audit-trail
+  `Activity` table that every money-moving service writes to (see [ACCOUNTS.md §10](docs/ACCOUNTS.md#10-bank-statement--a-unified-history));
+  crypto trading (`BTC/USD`, `ETH/USD`, `SOL/USD`, `XRP/USD`) reusing the exact same
+  order→risk→match→execute pipeline stocks use, its own nav tab — see [docs/CRYPTO.md](docs/CRYPTO.md).
+- **Remaining**: real SendGrid/Slack/bank-gateway integrations, enforcing that a genuine two-currency
+  FX pair order can't carry a single-account settlement (see
+  [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md)), API-wide rate limiting, Resilience4j around
+  the MCP client, a real GCP Cloud Run deployment (the pipeline is written but untested — I don't
+  have cloud credentials in this environment), GCP Secret Manager/KMS for secrets, fronting the
+  hand-rolled JWT issuer with a real OAuth2/OIDC identity provider. Full list, consolidated:
+  [docs/KNOWN_GAPS.md](docs/KNOWN_GAPS.md).
 
 ## Contributing
 

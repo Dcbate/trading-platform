@@ -16,46 +16,42 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * The persisted twin of the {@code LoanEvent} Kafka record — {@code LoanServiceImpl} writes one
- * of these alongside every publish, on origination and on each repayment. {@code Loan} itself
- * only tracks current state ({@code outstandingPrincipal}, {@code accruedInterest}); this table
- * is what makes individual repayments queryable (backs the bank statement), not just the latest
- * balance.
+ * One immutable row in a client's activity/audit trail — a deposit, withdrawal, conversion,
+ * account closure, loan origination, repayment, or one leg of a transfer. Written once, by the
+ * service that caused it, with the human-readable {@code description} and signed {@code amount}
+ * already computed at write time (the service already has every object it needs in hand — the
+ * account, the counterparty, the rate — so there's nothing left to re-derive later). This is what
+ * lets {@code BankStatementServiceImpl} read this table directly instead of reconstructing the
+ * same information from five different repositories at request time.
  */
 @Entity
-@Table(name = "loan_activity")
+@Table(name = "activity")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class LoanActivity {
+public class Activity {
 
     @Id
     private UUID activityId;
 
     @Column(nullable = false)
-    private UUID loanId;
-
-    @Column(nullable = false)
     private String clientId;
+
+    private UUID accountId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private LoanEventType type;
+    private ActivityType type;
 
     @Column(nullable = false)
     private BigDecimal amount;
 
-    @Column(nullable = false)
-    private BigDecimal outstandingPrincipal;
+    private String currency;
 
     @Column(nullable = false)
-    private BigDecimal accruedInterest;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private LoanStatus status;
+    private String description;
 
     @Column(nullable = false)
     private Instant occurredAt;

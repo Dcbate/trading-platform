@@ -2,6 +2,7 @@ package com.dcbate.tradingplatform.trading.event;
 
 import com.dcbate.tradingplatform.config.TradingProperties;
 import com.dcbate.tradingplatform.trading.service.PriceFeedService;
+import java.util.List;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,9 +11,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Cron-driven trigger for {@link PriceFeedService#publishTick}, one tick per configured
- * instrument (currency pair or stock symbol — the feed treats both identically) on every run. A
- * single instrument's publish failure is caught and logged per-instrument so one bad tick can't
- * stop the rest from ticking in the same cycle.
+ * instrument (currency pair, stock symbol, or crypto pair — the feed treats all three
+ * identically) on every run. A single instrument's publish failure is caught and logged
+ * per-instrument so one bad tick can't stop the rest from ticking in the same cycle.
  */
 @Slf4j
 @Component
@@ -24,7 +25,8 @@ public class PriceFeedScheduler {
 
     @Scheduled(fixedRateString = "${trading.price-feed.tick-interval-ms}")
     public void tick() {
-        Stream.concat(tradingProperties.currencyPairs().stream(), tradingProperties.stockSymbols().stream())
+        Stream.of(tradingProperties.currencyPairs(), tradingProperties.stockSymbols(), tradingProperties.cryptoSymbols())
+                .flatMap(List::stream)
                 .forEach(this::publishSafely);
     }
 

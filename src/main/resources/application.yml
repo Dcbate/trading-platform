@@ -109,6 +109,7 @@ chronicle:
 trading:
   currency-pairs: EUR/USD,GBP/USD,USD/JPY,USD/CHF,AUD/USD
   stock-symbols: AAPL,MSFT,GOOGL,AMZN,NVDA,TSLA,META
+  crypto-symbols: BTC/USD,ETH/USD,SOL/USD,XRP/USD
   price-feed:
     tick-interval-ms: 2000
     anomaly-threshold-percent: 10

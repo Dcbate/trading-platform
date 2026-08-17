@@ -121,29 +121,38 @@ changes needed in `CallerPrincipal` or any controller, since they only ever look
 on a validated token. `AuthController`/`AuthServiceImpl` would mostly go away, replaced by the IdP's
 own signup/login/consent flows.
 
-## FX trade execution does not move account balances — a gap I'm stating, not hiding
+## Order settlement is real for a single-asset order, but not for a genuine two-currency FX pair
 
 **File:** `trading/service/ExecutionServiceImpl.java`.
 
-When an order fills, `recordTrade()` records metrics, saves the `Trade` row, updates both orders'
-status (and broadcasts over the WebSocket order stream), and journals the fill to Chronicle Queue.
-It has **no reference to `AccountService` at all** — I confirmed this with a repo-wide search:
-nothing under `trading/` or `kafka/` touches account balances. `AccountType.FX_TRADING` exists as an
-enum value, but nothing in the fill path connects to it. Account balances only ever change via
-`LedgerServiceImpl` (the payment settlement saga) or the `deposit`/`withdraw`/`convert` endpoints on
-`AccountController`.
+*Update: this section originally said fills never touch account balances at all. That was true
+when it was written; it's since changed — `ExecutionServiceImpl.settleFill()` now runs whenever a
+filled order carries an `accountId`, debiting/crediting `Account.balance` and maintaining a
+`Position` row, inside the same transaction that updates `Order`/`Trade`. It's genuinely real, not
+simulated — I demonstrated it live (a real $270.51 debit on a TSLA buy, verified via a follow-up
+account-balance query, not just a status flip) in
+[HOW_A_TRADE_FILLS.md](HOW_A_TRADE_FILLS.md). What's below is the gap that's actually still open.**
 
-**Why I'm flagging this as a real gap, not dressing it up as a design choice:** unlike the items
-above, there's no strong argument that this *should* stay simulated — a real FX desk's fills do
-move money. I scoped it out because wiring a fill to a debit/credit pair correctly (which side holds
-which currency, partial fills, netting) is a meaningfully sized feature in its own right, not a
-same-day addition like the notification/email items above. I ran out of runway before getting to
-it.
+`settleFill()` triggers on any filled order that carries an `accountId` — it doesn't check what the
+order's `currencyPair` actually is. For a single-asset symbol like `TSLA` or `AAPL`, treating the
+fill as "debit `fillQuantity * fillPrice`, credit a `Position`" is exactly correct: it's cash in,
+one asset out (or vice versa). But a genuine FX pair like `EUR/USD` is a *two-currency* instrument —
+a real EUR/USD buy debits one account in USD and credits a different account in EUR, not one
+account, one notional. If a client submitted an `EUR/USD` order with an `accountId` attached,
+`settleFill()` would still run and treat it exactly like a stock trade: a single-currency notional
+debit/credit against whatever currency that one account happens to hold, and a `Position` row keyed
+by `"EUR/USD"` sitting alongside real share positions — economically wrong for a true FX trade, even
+though nothing in the code stops it from happening. In practice this hasn't surfaced because the
+seeded demo currency pairs are traded without an `accountId` (the "dealer desk" pattern — see
+[HOW_A_TRADE_FILLS.md](HOW_A_TRADE_FILLS.md)) and the frontend only attaches `accountId` to
+stock-symbol orders, but nothing in `OrderServiceImpl` enforces that split — it's a convention, not
+a rule.
 
-**To productionize:** on a fill, debit the seller's base-currency account and credit their
-quote-currency account (and the inverse for the buyer) inside the same transaction that updates the
-`Order`/`Trade` rows — the pattern to follow already exists in `LedgerServiceImpl`'s double-entry
-logic for payments.
+**To productionize:** either reject an `accountId` on a genuine currency-pair order at submission
+time (make the split explicit and enforced, not just conventional), or implement real two-leg FX
+settlement — debit the base-currency account and credit the quote-currency account (and the inverse
+for the counterparty) inside the same transaction, the same double-entry shape
+`LedgerServiceImpl` already uses for payments.
 
 ## What's genuinely real
 

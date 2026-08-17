@@ -29,7 +29,8 @@ class PriceControllerTest {
     @BeforeEach
     void setUp() {
         TradingProperties tradingProperties = new TradingProperties(
-                List.of("EUR/USD", "GBP/USD", "USD/JPY"), List.of("AAPL"), new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
+                List.of("EUR/USD", "GBP/USD", "USD/JPY"), List.of("AAPL"), List.of("BTC/USD"),
+                new TradingProperties.PriceFeed(2000, new BigDecimal("10")));
         mockMvc = MockMvcBuilders.standaloneSetup(new PriceController(priceFeedService, tradingProperties)).build();
     }
 
@@ -55,5 +56,16 @@ class PriceControllerTest {
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].symbol").value("AAPL"))
                 .andExpect(jsonPath("$[0].price").value(190.00));
+    }
+
+    @Test
+    void listCryptoPricesReturnsOnlyPricedSymbols() throws Exception {
+        when(priceFeedService.currentPrice("BTC/USD")).thenReturn(Optional.of(new BigDecimal("65000.00")));
+
+        mockMvc.perform(get("/v1/crypto/prices"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].symbol").value("BTC/USD"))
+                .andExpect(jsonPath("$[0].price").value(65000.00));
     }
 }

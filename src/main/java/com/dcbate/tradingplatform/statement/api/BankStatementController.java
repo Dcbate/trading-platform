@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -25,8 +26,12 @@ public class BankStatementController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('CLIENT', 'ADMIN', 'AUDITOR', 'COMPLIANCE_OFFICER')")
-    @Operation(summary = "Get a client's bank statement — every order, payment, transfer, deposit/withdrawal, conversion, and loan event, newest first")
-    public ResponseEntity<BankStatementResponse> getStatement(@RequestParam String clientId, Authentication authentication) {
-        return ResponseEntity.ok(bankStatementService.getStatement(clientId, CallerPrincipal.from(authentication)));
+    @Operation(summary = "Get a client's bank statement — every order, payment, transfer, deposit/withdrawal, conversion, and loan event, newest first",
+            description = "Omit accountId for every account; pass it to scope the feed to just one account.")
+    public ResponseEntity<BankStatementResponse> getStatement(
+            @RequestParam String clientId,
+            @RequestParam(required = false) UUID accountId,
+            Authentication authentication) {
+        return ResponseEntity.ok(bankStatementService.getStatement(clientId, accountId, CallerPrincipal.from(authentication)));
     }
 }

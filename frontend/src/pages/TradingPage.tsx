@@ -121,6 +121,11 @@ export function TradingPage() {
   const { data: positions } = usePositions(user?.clientId)
 
   const priceFor = (symbol: string) => prices.find((p) => p.symbol === symbol)?.price
+  // Scoped to stock symbols only — the client's order/position lists are shared across FX,
+  // stocks, and crypto, and this page should only ever show its own.
+  const stockSymbols = new Set(prices.map((p) => p.symbol))
+  const stockOrders = (orders ?? []).filter((o) => stockSymbols.has(o.currencyPair))
+  const stockPositions = (positions ?? []).filter((p) => stockSymbols.has(p.symbol))
 
   const orderColumns: Column<OrderResponse>[] = [
     { header: 'Symbol', render: (o) => <span className="font-semibold text-ink-900">{o.currencyPair}</span> },
@@ -218,7 +223,7 @@ export function TradingPage() {
       <div>
         <h2 className={`${sectionTitle} mb-2`}>My positions</h2>
         <TransactionTable
-          rows={positions ?? []}
+          rows={stockPositions}
           columns={positionColumns}
           keyField="positionId"
           emptyMessage="No positions yet — buy your first share above."
@@ -227,7 +232,7 @@ export function TradingPage() {
 
       <div>
         <h2 className={`${sectionTitle} mb-2`}>My orders</h2>
-        <TransactionTable rows={orders ?? []} columns={orderColumns} keyField="orderId" emptyMessage="No orders yet." />
+        <TransactionTable rows={stockOrders} columns={orderColumns} keyField="orderId" emptyMessage="No orders yet." />
       </div>
     </div>
   )

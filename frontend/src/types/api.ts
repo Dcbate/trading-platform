@@ -10,7 +10,7 @@
 
 import { accountTypeLabel } from '../lib/format'
 
-export type AccountType = 'CHECKING' | 'SAVINGS' | 'FX_TRADING' | 'BROKERAGE'
+export type AccountType = 'CHECKING' | 'SAVINGS' | 'FX_TRADING' | 'BROKERAGE' | 'CRYPTO'
 export type AccountStatus = 'ACTIVE' | 'FROZEN' | 'CLOSED'
 export type TransferStatus = 'COMPLETED' | 'FAILED'
 export type LoanStatus = 'ACTIVE' | 'PAID_OFF'

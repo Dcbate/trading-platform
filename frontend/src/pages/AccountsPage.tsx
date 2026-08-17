@@ -18,7 +18,7 @@ import { accountLabel, type AccountResponse, type AccountType } from '../types/a
 import { accountTypeLabel, formatMoney } from '../lib/format'
 import { btnDangerSm, btnGhostSm, btnPrimary, btnSuccessSm, card, input, inputSm, label, pageTitle, sectionTitle } from '../lib/styles'
 
-const ACCOUNT_TYPES: AccountType[] = ['CHECKING', 'SAVINGS', 'FX_TRADING', 'BROKERAGE']
+const ACCOUNT_TYPES: AccountType[] = ['CHECKING', 'SAVINGS', 'FX_TRADING', 'BROKERAGE', 'CRYPTO']
 
 function OpenAccountForm({ clientId }: { clientId: string }) {
   const { data: currencies } = useCurrencies()

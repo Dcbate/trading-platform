@@ -12,6 +12,7 @@ import {
   Moon,
   Gamepad2,
   FileText,
+  Bitcoin,
 } from 'lucide-react'
 import { useAuth, useLogout } from '../hooks/useAuth'
 import { useThemeStore } from '../store/themeStore'
@@ -35,6 +36,7 @@ const groups = [
     links: [
       { to: '/fx', label: 'FX Markets', icon: TrendingUp },
       { to: '/trading', label: 'Stocks & Shares', icon: LineChart },
+      { to: '/crypto', label: 'Crypto', icon: Bitcoin },
     ],
   },
 ]

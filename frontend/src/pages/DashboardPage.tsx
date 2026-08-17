@@ -17,6 +17,7 @@ const barColor: Record<AccountResponse['accountType'], string> = {
   SAVINGS: 'bg-success-500',
   FX_TRADING: 'bg-secondary-500',
   BROKERAGE: 'bg-warning-500',
+  CRYPTO: 'bg-orange-500',
 }
 
 // Grouped by currency and never compared across groups — a bar for a £300 GBP account sitting

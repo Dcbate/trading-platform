@@ -1,9 +1,11 @@
 package com.dcbate.tradingplatform.transfer.service;
 
 import com.dcbate.tradingplatform.account.repository.AccountRepository;
+import com.dcbate.tradingplatform.activity.event.ActivityRecordedEvent;
 import com.dcbate.tradingplatform.config.KafkaTopicsProperties;
 import com.dcbate.tradingplatform.domain.Account;
 import com.dcbate.tradingplatform.domain.AccountStatus;
+import com.dcbate.tradingplatform.domain.ActivityType;
 import com.dcbate.tradingplatform.domain.Transfer;
 import com.dcbate.tradingplatform.domain.TransferStatus;
 import com.dcbate.tradingplatform.exception.AccountNotActiveException;
@@ -23,6 +25,7 @@ import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +37,7 @@ public class TransferServiceImpl implements TransferService {
 
     private final TransferRepository transferRepository;
     private final AccountRepository accountRepository;
+    private final ApplicationEventPublisher eventPublisher;
     private final KafkaEventPublisher kafkaEventPublisher;
     private final KafkaTopicsProperties topics;
     private final MeterRegistry meterRegistry;
@@ -82,6 +86,13 @@ public class TransferServiceImpl implements TransferService {
                 transfer.getFromClientId(), transfer.getToClientId(), transfer.getAmount(),
                 transfer.getStatus(), transfer.getCreatedAt()));
 
+        // Two rows, one per side — a self-transfer between two of the caller's own accounts
+        // genuinely produces both an outgoing and an incoming line on the statement.
+        eventPublisher.publishEvent(new ActivityRecordedEvent(from.getClientId(), from.getAccountId(), ActivityType.TRANSFER_OUT,
+                transfer.getAmount().negate(), from.getCurrency(), "Transfer to client " + shortId(to.getClientId())));
+        eventPublisher.publishEvent(new ActivityRecordedEvent(to.getClientId(), to.getAccountId(), ActivityType.TRANSFER_IN,
+                transfer.getAmount(), to.getCurrency(), "Transfer from client " + shortId(from.getClientId())));
+
         log.info("Transfer completed: transferId={}, fromAccountId={}, toAccountId={}, amount={}",
                 transfer.getTransferId(), transfer.getFromAccountId(), transfer.getToAccountId(), transfer.getAmount());
 
@@ -96,6 +107,10 @@ public class TransferServiceImpl implements TransferService {
             throw new org.springframework.security.access.AccessDeniedException("Not a party to this transfer");
         }
         return TransferResponse.from(transfer);
+    }
+
+    private String shortId(String clientId) {
+        return clientId.length() > 8 ? clientId.substring(0, 8) : clientId;
     }
 
     private Account requireActiveAccount(UUID accountId) {

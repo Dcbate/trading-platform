@@ -8,6 +8,7 @@ const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   SAVINGS: 'Savings',
   FX_TRADING: 'FX Trading',
   BROKERAGE: 'Stocks & Shares',
+  CRYPTO: 'Crypto',
 }
 
 export function accountTypeLabel(type: AccountType): string {

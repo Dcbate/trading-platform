@@ -133,3 +133,15 @@ activity is normal), but not safe to hand to retail clients without adding serve
 first, since client A would see client B's fills. The frontend's Trading page polls
 `GET /v1/orders?clientId=` instead. Filtering the WebSocket by client is a real follow-on, not
 done here.
+
+## 6. Crypto orders: a third symbol family on the same pipeline
+
+Crypto (`BTC/USD`, `ETH/USD`, `SOL/USD`, `XRP/USD`) reuses the identical
+`OrderController` → `RiskService` → `MatchingEngine` → `ExecutionService` pipeline §5 describes
+for stocks — a third `TradingProperties` symbol list (`cryptoSymbols`), not a third matching
+engine or a second queue. Settlement-wise it behaves like a stock order (single-asset: cash in,
+`Position` out), not like an FX pair, because a crypto buy genuinely is "cash out, asset in," not
+a two-currency trade — the same reasoning as §5, just for a different asset class. Quantities stay
+fractional (`0.001 BTC` is a normal order), unlike a stock order's whole-share requirement — crypto
+is deliberately kept out of `stockSymbols` so that check doesn't apply to it. Full reasoning,
+including what I chose not to build, in [CRYPTO.md](CRYPTO.md).
