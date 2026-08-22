@@ -4,6 +4,9 @@ import type {
   GameDebriefResponse,
   GameDifficultyCode,
   GameDifficultyResponse,
+  GameLeaderboardResponse,
+  GameLeaderboardSortBy,
+  GameMarketEventResponse,
   GamePriceResponse,
   GameSessionResponse,
   GameStatsResponse,
@@ -33,6 +36,29 @@ export function useGameMarket(difficulty: GameDifficultyCode | undefined) {
     // Same fix as useLivePrices — without this the ticker (and the whole point of "the clock is
     // ticking") silently freezes the moment the tab isn't the active one.
     refetchIntervalInBackground: true,
+  })
+}
+
+export function useGameMarketEvents(difficulty: GameDifficultyCode | undefined) {
+  return useQuery({
+    queryKey: ['game', 'market-events', difficulty],
+    queryFn: () => apiClient.get<GameMarketEventResponse[]>('/v1/game/market/events', { params: { difficulty } }).then((r) => r.data),
+    enabled: !!difficulty,
+    refetchInterval: GAME_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: true,
+  })
+}
+
+export function useGameLeaderboard(
+  difficulty: GameDifficultyCode | undefined,
+  sortBy: GameLeaderboardSortBy,
+  clientId: string | undefined,
+) {
+  return useQuery({
+    queryKey: ['game', 'leaderboard', difficulty, sortBy, clientId],
+    queryFn: () =>
+      apiClient.get<GameLeaderboardResponse>('/v1/game/leaderboard', { params: { difficulty, sortBy, clientId } }).then((r) => r.data),
+    enabled: !!difficulty,
   })
 }
 
@@ -100,11 +126,64 @@ export function useTakeGameLoan(sessionId: string) {
   })
 }
 
+export function useActivateGameSpeedBoost(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiClient.post<GameSessionResponse>(`/v1/game/sessions/${sessionId}/speed-boost`, {}).then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['game', 'session', sessionId], data)
+    },
+  })
+}
+
+export function useHireGameAdvisor(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiClient.post<GameSessionResponse>(`/v1/game/sessions/${sessionId}/advisor/hire`, {}).then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['game', 'session', sessionId], data)
+    },
+  })
+}
+
+export function usePurchaseGameInsurance(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (symbol: string) =>
+      apiClient.post<GameSessionResponse>(`/v1/game/sessions/${sessionId}/insurance`, { symbol }).then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['game', 'session', sessionId], data)
+    },
+  })
+}
+
 export function useRepayGameLoan(sessionId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ gameLoanId, amount }: { gameLoanId: string; amount: number }) =>
       apiClient.post<GameSessionResponse>(`/v1/game/sessions/${sessionId}/loans/${gameLoanId}/repay`, { amount }).then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['game', 'session', sessionId], data)
+    },
+  })
+}
+
+export function useDepositToGameSavings(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (amount: number) =>
+      apiClient.post<GameSessionResponse>(`/v1/game/sessions/${sessionId}/savings/deposit`, { amount }).then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['game', 'session', sessionId], data)
+    },
+  })
+}
+
+export function useWithdrawFromGameSavings(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (amount: number) =>
+      apiClient.post<GameSessionResponse>(`/v1/game/sessions/${sessionId}/savings/withdraw`, { amount }).then((r) => r.data),
     onSuccess: (data) => {
       queryClient.setQueryData(['game', 'session', sessionId], data)
     },

@@ -34,11 +34,19 @@ export interface AccountResponse {
   createdAt: string
 }
 
-// Same type/currency accounts are otherwise indistinguishable in a UI — falls back to a short
-// slice of the id when the client didn't set a nickname.
-export function accountLabel(account: AccountResponse): string {
+// Same type/currency accounts are otherwise indistinguishable in a UI. Previously fell back to a
+// slice of the account's raw UUID to disambiguate — that's still an internal identifier, not
+// something a client reads as meaningful, so unnamed duplicates are numbered by account age
+// instead (oldest first), never by id.
+export function accountLabel(account: AccountResponse, allAccounts: AccountResponse[] = []): string {
   const base = `${accountTypeLabel(account.accountType)} · ${account.currency}`
-  return account.nickname ? `${account.nickname} (${base})` : `${base} · ${account.accountId.slice(0, 8)}`
+  if (account.nickname) return `${account.nickname} (${base})`
+  const unnamedSiblings = allAccounts
+    .filter((a) => !a.nickname && a.accountType === account.accountType && a.currency === account.currency)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  if (unnamedSiblings.length <= 1) return base
+  const index = unnamedSiblings.findIndex((a) => a.accountId === account.accountId)
+  return index >= 0 ? `${base} (${index + 1})` : base
 }
 
 export interface CurrencyBalance {
@@ -172,6 +180,8 @@ export interface GamePositionResponse {
   currentPrice: number
   marketValue: number
   unrealizedPnl: number
+  insured: boolean
+  insuranceFloorPrice: number | null
 }
 
 export interface GameLoanResponse {
@@ -189,11 +199,21 @@ export interface GameSessionResponse {
   difficulty: GameDifficultyCode
   status: GameStatus
   cash: number
+  savingsBalance: number
   netWorth: number
   goalAmount: number
   timeRemainingSeconds: number
+  currentStreak: number
   startedAt: string
   endsAt: string
+  speedBoostAvailableAt: string
+  marketSpeedMultiplier: number
+  advisorHired: boolean
+  advisorTipSymbol: string | null
+  advisorTipSide: OrderSide | null
+  advisorNextTipAt: string | null
+  totalDividendsPaid: number
+  totalTaxPaid: number
   positions: GamePositionResponse[]
   loans: GameLoanResponse[]
 }
@@ -222,10 +242,16 @@ export interface GameSymbolPerformanceResponse {
   quantityHeld: number
 }
 
+export interface GameAchievementResponse {
+  title: string
+  description: string
+}
+
 export interface GameDebriefResponse {
   summary: string
   aiGenerated: boolean
   symbolPerformance: GameSymbolPerformanceResponse[]
+  achievements: GameAchievementResponse[]
 }
 
 export interface GameDifficultyStat {
@@ -242,4 +268,30 @@ export interface GameStatsResponse {
   winRatePercent: number
   bestTradePnl: number | null
   perDifficulty: GameDifficultyStat[]
+}
+
+export type GameLeaderboardSortBy = 'NET_WORTH' | 'FASTEST_WIN'
+
+// No clientId here on purpose — a public leaderboard shows scores, never who's behind them (see
+// GameLeaderboardEntry's own javadoc on the backend). `mine` is the only tie back to the caller.
+export interface GameLeaderboardEntry {
+  rank: number
+  netWorth: number
+  durationSeconds: number
+  status: GameStatus
+  mine: boolean
+}
+
+export interface GameLeaderboardResponse {
+  difficulty: GameDifficultyCode
+  sortBy: GameLeaderboardSortBy
+  entries: GameLeaderboardEntry[]
+}
+
+export interface GameMarketEventResponse {
+  symbol: string
+  headline: string
+  priceUp: boolean
+  magnitudePercent: number
+  occurredAt: string
 }

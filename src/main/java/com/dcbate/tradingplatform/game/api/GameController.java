@@ -3,9 +3,14 @@ package com.dcbate.tradingplatform.game.api;
 import com.dcbate.tradingplatform.domain.GameDifficulty;
 import com.dcbate.tradingplatform.game.api.dto.GameDebriefResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameDifficultyResponse;
+import com.dcbate.tradingplatform.game.api.dto.GameLeaderboardResponse;
+import com.dcbate.tradingplatform.game.api.dto.GameInsuranceRequest;
+import com.dcbate.tradingplatform.game.api.dto.GameLeaderboardSortBy;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
+import com.dcbate.tradingplatform.game.api.dto.GameMarketEventResponse;
 import com.dcbate.tradingplatform.game.api.dto.GamePriceResponse;
+import com.dcbate.tradingplatform.game.api.dto.GameSavingsRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameSessionResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameStartRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameStatsResponse;
@@ -75,6 +80,12 @@ public class GameController {
         return ResponseEntity.ok(prices);
     }
 
+    @GetMapping("/market/events")
+    @Operation(summary = "Recent headline-worthy market events (crashes, chaos spikes) for a difficulty's market, newest first")
+    public ResponseEntity<List<GameMarketEventResponse>> getMarketEvents(@RequestParam GameDifficulty difficulty) {
+        return ResponseEntity.ok(gameMarketService.recentEvents(difficulty).stream().map(GameMarketEventResponse::from).toList());
+    }
+
     @PostMapping("/sessions")
     @Operation(summary = "Start a new Game Mode session, or resume the caller's existing in-progress one")
     public ResponseEntity<GameSessionResponse> startSession(@Valid @RequestBody GameStartRequest request, Authentication authentication) {
@@ -97,6 +108,27 @@ public class GameController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @PostMapping("/sessions/{sessionId}/speed-boost")
+    @Operation(summary = "Fast-forward the shared market for this session's difficulty tier for 60s — 90s cooldown per session, free otherwise")
+    public ResponseEntity<GameSessionResponse> activateSpeedBoost(@PathVariable UUID sessionId, Authentication authentication) {
+        return ResponseEntity.ok(gameService.activateSpeedBoost(sessionId, CallerPrincipal.from(authentication)));
+    }
+
+    @PostMapping("/sessions/{sessionId}/advisor/hire")
+    @Operation(summary = "Hire a wealth manager for a one-time fee — they periodically tip a symbol, right roughly 62% of the time")
+    public ResponseEntity<GameSessionResponse> hireAdvisor(@PathVariable UUID sessionId, Authentication authentication) {
+        GameSessionResponse response = gameService.hireAdvisor(sessionId, CallerPrincipal.from(authentication));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/sessions/{sessionId}/insurance")
+    @Operation(summary = "Buy insurance on a held position — a one-time premium floors its downside at 85% of average cost")
+    public ResponseEntity<GameSessionResponse> purchaseInsurance(
+            @PathVariable UUID sessionId, @Valid @RequestBody GameInsuranceRequest request, Authentication authentication) {
+        GameSessionResponse response = gameService.purchaseInsurance(sessionId, request, CallerPrincipal.from(authentication));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
     @PostMapping("/sessions/{sessionId}/loans/{loanId}/repay")
     @Operation(summary = "Repay a game loan — applied to accrued interest first, then outstanding principal")
     public ResponseEntity<GameSessionResponse> repayLoan(
@@ -110,6 +142,20 @@ public class GameController {
             @PathVariable UUID sessionId, @Valid @RequestBody GameTradeRequest request, Authentication authentication) {
         GameSessionResponse response = gameService.placeTrade(sessionId, request, CallerPrincipal.from(authentication));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/sessions/{sessionId}/savings/deposit")
+    @Operation(summary = "Move cash into savings — a slow, flat-rate, every-difficulty alternative to trading for idle cash")
+    public ResponseEntity<GameSessionResponse> depositToSavings(
+            @PathVariable UUID sessionId, @Valid @RequestBody GameSavingsRequest request, Authentication authentication) {
+        return ResponseEntity.ok(gameService.depositToSavings(sessionId, request, CallerPrincipal.from(authentication)));
+    }
+
+    @PostMapping("/sessions/{sessionId}/savings/withdraw")
+    @Operation(summary = "Move savings back to cash, including whatever interest has accrued")
+    public ResponseEntity<GameSessionResponse> withdrawFromSavings(
+            @PathVariable UUID sessionId, @Valid @RequestBody GameSavingsRequest request, Authentication authentication) {
+        return ResponseEntity.ok(gameService.withdrawFromSavings(sessionId, request, CallerPrincipal.from(authentication)));
     }
 
     @GetMapping("/sessions/{sessionId}/trades")
@@ -129,5 +175,15 @@ public class GameController {
     @Operation(summary = "A client's own Game Mode history — win rate, best score per difficulty, best trade. Personal only, no other players.")
     public ResponseEntity<GameStatsResponse> getStats(@RequestParam String clientId, Authentication authentication) {
         return ResponseEntity.ok(gameService.getStats(clientId, CallerPrincipal.from(authentication)));
+    }
+
+    @GetMapping("/leaderboard")
+    @Operation(summary = "Top 10 sessions for a difficulty, across every player, ranked by net worth or fastest win — anonymous, "
+            + "only flags which row (if any) is the caller's own")
+    public ResponseEntity<GameLeaderboardResponse> getLeaderboard(
+            @RequestParam GameDifficulty difficulty,
+            @RequestParam(required = false, defaultValue = "NET_WORTH") GameLeaderboardSortBy sortBy,
+            @RequestParam(required = false) String clientId) {
+        return ResponseEntity.ok(gameService.getLeaderboard(difficulty, sortBy, clientId));
     }
 }

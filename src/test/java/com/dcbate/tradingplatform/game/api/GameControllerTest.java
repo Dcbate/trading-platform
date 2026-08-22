@@ -64,8 +64,9 @@ class GameControllerTest {
     }
 
     private GameSessionResponse session(UUID sessionId, GameStatus status, BigDecimal cash) {
-        return new GameSessionResponse(sessionId, "client-1", GameDifficulty.APPRENTICE, status, cash, cash,
-                GameDifficulty.APPRENTICE.getGoalAmount(), 600, Instant.now(), Instant.now().plusSeconds(600), List.of(), List.of());
+        return new GameSessionResponse(sessionId, "client-1", GameDifficulty.APPRENTICE, status, cash, BigDecimal.ZERO, cash,
+                GameDifficulty.APPRENTICE.getGoalAmount(), 600, 0, Instant.now(), Instant.now().plusSeconds(600),
+                Instant.now(), 1, false, null, null, null, BigDecimal.ZERO, BigDecimal.ZERO, List.of(), List.of());
     }
 
     @Test

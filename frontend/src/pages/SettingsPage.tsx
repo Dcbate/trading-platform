@@ -23,7 +23,6 @@ export function SettingsPage() {
           </span>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-ink-900">{user?.email}</p>
-            <p className="truncate font-mono text-xs text-ink-400">{user?.clientId}</p>
           </div>
         </div>
 

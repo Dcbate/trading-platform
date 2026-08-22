@@ -8,9 +8,9 @@ import { useOrders, useSubmitOrder } from '../hooks/useOrders'
 import { usePositions } from '../hooks/usePositions'
 import { TransactionTable, type Column } from '../components/TransactionTable'
 import { Badge } from '../components/Badge'
-import { btnSuccess, btnDanger, card, input, label, pageTitle, sectionTitle } from '../lib/styles'
+import { btnSuccess, btnDanger, btnGhostSm, card, input, label, pageTitle, sectionTitle } from '../lib/styles'
 import { accountTypeLabel, formatMoney, formatQuantity } from '../lib/format'
-import type { OrderResponse, OrderSide, PositionResponse } from '../types/api'
+import { accountLabel, type OrderResponse, type OrderSide, type PositionResponse } from '../types/api'
 
 // Crypto is quoted in USD everywhere, same convention as US-listed shares on the Stocks & Shares
 // page — this isn't the funding account's own currency, it stays fixed regardless.
@@ -22,7 +22,19 @@ function formatUpdatedAgo(updatedAt: number) {
   return seconds <= 1 ? 'just now' : `${seconds}s ago`
 }
 
-function OrderForm({ accountId, symbols, priceFor }: { accountId: string; symbols: string[]; priceFor: (symbol: string) => number | undefined }) {
+function OrderForm({
+  accountId,
+  accountBalance,
+  heldQuantityFor,
+  symbols,
+  priceFor,
+}: {
+  accountId: string
+  accountBalance: number
+  heldQuantityFor: (symbol: string) => number
+  symbols: string[]
+  priceFor: (symbol: string) => number | undefined
+}) {
   const user = useAuth()
   const submitOrder = useSubmitOrder()
   const [symbol, setSymbol] = useState(symbols[0] ?? '')
@@ -35,12 +47,15 @@ function OrderForm({ accountId, symbols, priceFor }: { accountId: string; symbol
 
   const price = priceFor(symbol)
   const estimatedCost = price && quantity ? price * Number(quantity) : undefined
+  // Crypto trades in fractional quantities (unlike whole shares), so "max" isn't rounded — it's
+  // clamped to 8 decimal places, the same precision the quantity input already accepts.
+  const maxQuantity = side === 'BUY' ? (price ? accountBalance / price : 0) : heldQuantityFor(symbol)
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!user || !price) return
+  function submitTrade(rawQuantity: number) {
+    if (!user || !price || rawQuantity <= 0) return
+    const roundedQuantity = Math.floor(rawQuantity * 1e8) / 1e8
     submitOrder.mutate(
-      { clientId: user.clientId, accountId, currencyPair: symbol, side, quantity: Number(quantity), price },
+      { clientId: user.clientId, accountId, currencyPair: symbol, side, quantity: roundedQuantity, price },
       {
         onSuccess: (order) => {
           toast.success(`Order submitted — ${order.status}`)
@@ -49,6 +64,12 @@ function OrderForm({ accountId, symbols, priceFor }: { accountId: string; symbol
         onError: (error) => toast.error(apiErrorMessage(error)),
       },
     )
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!quantity) return
+    submitTrade(Number(quantity))
   }
 
   return (
@@ -84,16 +105,27 @@ function OrderForm({ accountId, symbols, priceFor }: { accountId: string; symbol
       </div>
       <div className="flex flex-col gap-1.5">
         <label className={label}>Quantity</label>
-        <input
-          type="number"
-          min="0"
-          step="any"
-          value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
-          placeholder="0.001"
-          className={`w-32 ${input}`}
-          required
-        />
+        <div className="flex items-center gap-1.5">
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            placeholder="0.001"
+            className={`w-28 ${input}`}
+            required
+          />
+          <button
+            type="button"
+            onClick={() => submitTrade(maxQuantity)}
+            disabled={maxQuantity <= 0 || submitOrder.isPending}
+            className={btnGhostSm}
+            title={side === 'BUY' ? 'Buy the most you can afford, right away' : 'Sell everything you hold, right away'}
+          >
+            {side === 'BUY' ? 'Buy Max' : 'Sell Max'}
+          </button>
+        </div>
       </div>
       <div className="flex flex-col gap-0.5 text-sm text-ink-400">
         <span>Live price: {price ? usd(price) : '—'}</span>
@@ -209,13 +241,19 @@ export function CryptoPage() {
               <select value={accountId} onChange={(e) => setSelectedAccountId(e.target.value)} className={`w-64 ${input}`}>
                 {cryptoAccounts.map((a) => (
                   <option key={a.accountId} value={a.accountId}>
-                    {a.nickname ?? a.accountId.slice(0, 8)} — {formatMoney(a.balance, a.currency)}
+                    {accountLabel(a, cryptoAccounts)} — {formatMoney(a.balance, a.currency)}
                   </option>
                 ))}
               </select>
             </div>
           )}
-          <OrderForm accountId={accountId} symbols={prices.map((p) => p.symbol)} priceFor={priceFor} />
+          <OrderForm
+            accountId={accountId}
+            accountBalance={cryptoAccounts.find((a) => a.accountId === accountId)?.balance ?? 0}
+            heldQuantityFor={(symbol) => cryptoPositions.find((p) => p.symbol === symbol)?.quantity ?? 0}
+            symbols={prices.map((p) => p.symbol)}
+            priceFor={priceFor}
+          />
         </div>
       )}
 

@@ -22,6 +22,7 @@
         <chronicle-queue.version>5.26ea3</chronicle-queue.version>
         <springdoc.version>3.0.0</springdoc.version>
         <testcontainers.version>1.20.2</testcontainers.version>
+        <resilience4j.version>2.3.0</resilience4j.version>
         <!-- Chronicle Queue accesses JDK-internal APIs (off-heap memory, Unsafe) that are
              encapsulated by the module system on JDK 17+; these opens are required at runtime. -->
         <chronicle.jvm.opens>
@@ -149,6 +150,24 @@
             <groupId>net.openhft</groupId>
             <artifactId>affinity</artifactId>
             <version>3.23.3</version>
+        </dependency>
+
+        <!-- Circuit breaker (McpToolClient, BankClearingClient — config/ResilienceConfig.java).
+             Deliberately just the core + micrometer libraries, not resilience4j-spring-boot3's
+             autoconfigured starter: that starter targets Boot 3's autoconfiguration mechanism, and
+             this project has already found real Boot-4-vs-3.x-tooling gaps twice (Kafka, tracing —
+             see KafkaConfig.java, TracingConfig.java) by trusting a starter without checking. Wiring
+             the beans by hand in ResilienceConfig.java sidesteps that risk entirely and costs one
+             small config class. -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-circuitbreaker</artifactId>
+            <version>${resilience4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-micrometer</artifactId>
+            <version>${resilience4j.version}</version>
         </dependency>
 
         <!-- Observability -->

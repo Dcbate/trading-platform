@@ -165,6 +165,35 @@ original request to see which step actually executed versus failed. Worth knowin
 looking in the wrong place: the Chronicle trade journal is a compliance record for FX **trades**
 specifically, not a general-purpose debugging tool for payments or transfers.
 
+### "Do you have circuit breakers anywhere? What if bate-mcp-server goes down?"
+
+Yes, on both genuine external-dependency call sites: `McpToolClient` (calls `bate-mcp-server`) and
+`BankClearingClientImpl` (stands in for a real bank gateway). I wired Resilience4j by hand as two
+`@Bean`s in `ResilienceConfig.java` rather than its Spring Boot 3 starter — I'd already found two
+real Boot-4-compatibility gaps in starters that looked fine (Kafka, tracing), so a small config
+class removed that risk entirely for a third one. A 10-call sliding window, tripping at 50%
+failures, 30 seconds open, then 3 trial calls before deciding to close or reopen.
+
+The one design decision I'd lead with: only a thrown exception counts as a failure, never a normal
+`false` return — `BankClearingClientImpl`'s deterministic "declined above threshold" is a business
+outcome, not a sign the gateway's unhealthy, and it must never trip the breaker. I proved that with
+a test that fires 10 straight declines through a real breaker and asserts it's still `CLOSED`. And
+when the breaker *is* open, `BankClearingClientImpl` fails closed — returns `false` — rather than
+letting the exception escape, because the settlement saga only knows "cleared" or "declined," and
+assuming success when we couldn't even reach the gateway is the one genuinely unsafe choice.
+
+I live-verified the whole lifecycle, not just unit tests: killed the real `bate-mcp` container,
+watched real connection failures accumulate, watched the breaker actually trip
+(`CLOSED -> OPEN` in the logs), watched the next scheduled call get skipped before even attempting
+a connection, confirmed `state="open"` on the real Prometheus endpoint, brought `bate-mcp` back, and
+watched the recovery — `OPEN -> HALF_OPEN` after the cooldown, then `HALF_OPEN -> CLOSED` on the
+first successful trial. That live run caught two real bugs in my own wiring that a code read never
+would have: `CircuitBreakerRegistry.of(Map.of(name, config))` looks like it binds names to configs
+but doesn't — it silently fell back to Resilience4j's 100-call default, which I only caught because
+20+ real failures never tripped anything. And my state-transition logger was attached to
+`getAllCircuitBreakers()` before either breaker had actually been lazily created, so it logged
+nothing at all until I switched it to `registry.getEventPublisher().onEntryAdded(...)`.
+
 ### "What's actually simulated in this system, and why?"
 
 I'd answer this directly, not defensively. Email and Slack notifications are logged, not sent to a

@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -36,4 +37,12 @@ public class GamePosition {
 
     @Column(nullable = false)
     private BigDecimal avgCost;
+
+    /** When dividends were last settled into cash for this holding — see {@code GameServiceImpl.settleDividends}. */
+    private Instant dividendLastAccrualAt;
+
+    private boolean insured;
+
+    /** The per-share floor a real price can never mark below, once insured — see {@code GameServiceImpl.effectivePrice}. */
+    private BigDecimal insuranceFloorPrice;
 }

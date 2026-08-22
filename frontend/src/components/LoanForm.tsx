@@ -50,7 +50,7 @@ export function LoanForm({
         <select id="loanAccountId" value={accountId} onChange={(e) => setAccountId(e.target.value)} className={input} required>
           {accounts.map((account) => (
             <option key={account.accountId} value={account.accountId}>
-              {accountLabel(account)}
+              {accountLabel(account, accounts)}
             </option>
           ))}
         </select>

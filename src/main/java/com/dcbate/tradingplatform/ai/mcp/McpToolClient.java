@@ -1,5 +1,7 @@
 package com.dcbate.tradingplatform.ai.mcp;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
@@ -31,31 +33,52 @@ import org.springframework.stereotype.Component;
 public class McpToolClient {
 
     private final Supplier<McpSyncClient> clientFactory;
+    private final CircuitBreaker circuitBreaker;
     private volatile McpSyncClient client;
 
     @Autowired
-    public McpToolClient(@Value("${mcp.server.url}") String serverUrl, @Value("${mcp.client.timeout-ms}") long timeoutMs) {
-        this(() -> newInitializedClient(serverUrl, Duration.ofMillis(timeoutMs)));
+    public McpToolClient(
+            @Value("${mcp.server.url}") String serverUrl,
+            @Value("${mcp.client.timeout-ms}") long timeoutMs,
+            CircuitBreaker mcpClientCircuitBreaker) {
+        this(() -> newInitializedClient(serverUrl, Duration.ofMillis(timeoutMs)), mcpClientCircuitBreaker);
     }
 
-    /** Package-private seam for tests — injects a fake client factory instead of a real network connection. */
+    /**
+     * Package-private seam for tests that don't care about the breaker — injects a fake client
+     * factory and a permissive, always-closed breaker of its own (never shared with the real one).
+     */
     McpToolClient(Supplier<McpSyncClient> clientFactory) {
+        this(clientFactory, CircuitBreaker.ofDefaults("test-mcp-client"));
+    }
+
+    /** Package-private seam for tests that specifically exercise breaker behavior (open/half-open/closed). */
+    McpToolClient(Supplier<McpSyncClient> clientFactory, CircuitBreaker circuitBreaker) {
         this.clientFactory = clientFactory;
+        this.circuitBreaker = circuitBreaker;
     }
 
     /**
      * Calls a tool by name and returns its text content, or {@link Optional#empty()} if the
-     * server is unreachable, the tool call itself failed ({@code isError=true}), or the response
-     * had no usable text. Never throws — callers decide their own fallback.
+     * server is unreachable, the tool call itself failed ({@code isError=true}), the circuit
+     * breaker is currently open (bate-mcp-server has been failing enough that we're not even
+     * attempting the call right now), or the response had no usable text. Never throws — callers
+     * decide their own fallback.
      */
     public Optional<String> callTool(String toolName, Map<String, Object> arguments) {
         try {
-            McpSchema.CallToolResult result = connectedClient().callTool(new McpSchema.CallToolRequest(toolName, arguments));
+            McpSchema.CallToolResult result = circuitBreaker.executeSupplier(
+                    () -> connectedClient().callTool(new McpSchema.CallToolRequest(toolName, arguments)));
             if (Boolean.TRUE.equals(result.isError())) {
                 log.warn("MCP tool {} returned an error result: {}", toolName, firstText(result.content()));
                 return Optional.empty();
             }
             return firstText(result.content());
+        } catch (CallNotPermittedException e) {
+            // The breaker itself refused the call — no client interaction happened at all, so
+            // there's nothing broken to discard, unlike the real-failure branch below.
+            log.warn("MCP tool call to {} skipped — circuit breaker '{}' is open", toolName, e.getCausingCircuitBreakerName());
+            return Optional.empty();
         } catch (Exception e) {
             log.warn("MCP tool call to {} failed: {}", toolName, e.getMessage());
             discardBrokenClient();

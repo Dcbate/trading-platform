@@ -150,7 +150,7 @@ function CloseAccountPanel({
             <select value={ownDestination} onChange={(e) => setOwnDestination(e.target.value)} className={inputSm}>
               {siblings.map((s) => (
                 <option key={s.accountId} value={s.accountId}>
-                  {accountLabel(s)}
+                  {accountLabel(s, siblings)}
                 </option>
               ))}
               <option value={OTHER_DESTINATION}>A different account (enter its id)…</option>
@@ -269,7 +269,7 @@ function ConvertPanel({ accounts }: { accounts: AccountResponse[] }) {
         <select value={fromAccountId} onChange={(e) => setFromAccountId(e.target.value)} className={input}>
           {accounts.map((a) => (
             <option key={a.accountId} value={a.accountId}>
-              {accountLabel(a)}
+              {accountLabel(a, accounts)}
             </option>
           ))}
         </select>
@@ -284,7 +284,7 @@ function ConvertPanel({ accounts }: { accounts: AccountResponse[] }) {
             .filter((a) => a.accountId !== fromAccountId)
             .map((a) => (
               <option key={a.accountId} value={a.accountId}>
-                {accountLabel(a)}
+                {accountLabel(a, accounts)}
               </option>
             ))}
         </select>
@@ -318,7 +318,6 @@ export function AccountsPage() {
     { header: 'Name', render: (a) => a.nickname ?? <span className="text-ink-400">—</span> },
     { header: 'Type', render: (a) => accountTypeLabel(a.accountType) },
     { header: 'Currency', render: (a) => a.currency },
-    { header: 'Id', render: (a) => <span className="font-mono text-xs text-ink-400">{a.accountId.slice(0, 8)}</span> },
     { header: 'Balance', render: (a) => <span className="font-mono font-semibold">{formatMoney(a.balance, a.currency)}</span> },
     {
       header: 'Status',
@@ -354,7 +353,12 @@ export function AccountsPage() {
 
       {selectedAccountId && (
         <p className="text-xs text-ink-400">
-          Came from the dashboard for account {selectedAccountId.slice(0, 8)} — deposit/withdraw it above.
+          Came from the dashboard for{' '}
+          {(() => {
+            const selected = (accounts ?? []).find((a) => a.accountId === selectedAccountId)
+            return selected ? accountLabel(selected, accounts) : 'that account'
+          })()}{' '}
+          — deposit/withdraw it above.
         </p>
       )}
     </div>

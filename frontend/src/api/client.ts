@@ -44,10 +44,40 @@ apiClient.interceptors.response.use(
   },
 )
 
+// Internal identifiers (account/loan/transfer/session ids) show up embedded in some backend
+// exception messages (e.g. "Account not found: 3fa85f64-...") — meaningful for a log line, not
+// for a client reading a toast. Strip them and tidy up whatever punctuation is left behind.
+function stripInternalIds(message: string): string {
+  return message
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s*:\s*$/, '')
+    .replace(/\s+([,.])/g, '$1')
+    .trim()
+}
+
+const STATUS_FALLBACKS: Record<number, string> = {
+  400: "That request doesn't look right — please check the details and try again.",
+  401: 'Your session has expired — please log in again.',
+  403: "You don't have permission to do that.",
+  404: "That couldn't be found.",
+  409: "That couldn't be completed — please check the details and try again.",
+}
+
 export function apiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const data = error.response?.data as ApiError | undefined
-    if (data?.messages?.length) return data.messages.join(', ')
+    if (!error.response) {
+      // No response at all: request never reached the server (offline, DNS/CORS failure) or timed
+      // out — a raw axios "Network Error" message is meaningless to a client.
+      return "Can't reach the bank right now — check your connection and try again."
+    }
+    const data = error.response.data as ApiError | undefined
+    if (data?.messages?.length) {
+      return data.messages.map(stripInternalIds).join(', ')
+    }
+    const status = error.response.status
+    if (status in STATUS_FALLBACKS) return STATUS_FALLBACKS[status]
+    if (status >= 500) return 'Something went wrong on our end — please try again in a moment.'
   }
   return 'Something went wrong. Please try again.'
 }

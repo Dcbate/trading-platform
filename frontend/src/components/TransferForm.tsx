@@ -45,7 +45,7 @@ export function TransferForm({
         <select id="fromAccountId" value={fromAccountId} onChange={(e) => setFromAccountId(e.target.value)} className={input} required>
           {accounts.map((account) => (
             <option key={account.accountId} value={account.accountId}>
-              {accountLabel(account)} · {formatMoney(account.balance, account.currency)}
+              {accountLabel(account, accounts)} · {formatMoney(account.balance, account.currency)}
             </option>
           ))}
         </select>

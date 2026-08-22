@@ -28,7 +28,9 @@ public class GlobalExceptionHandler {
             CurrencyMismatchException.class, RateUnavailableException.class, LoanNotActiveException.class,
             EmailAlreadyRegisteredException.class, InvalidAccountClosureException.class, InsufficientPositionException.class,
             GameSessionNotActiveException.class, GameInsufficientFundsException.class, GameInsufficientPositionException.class,
-            GameSessionStillInProgressException.class, AccountTypeMismatchException.class, CryptoPriceUnavailableException.class})
+            GameInsufficientSavingsException.class, GameSessionStillInProgressException.class, AccountTypeMismatchException.class,
+            CryptoPriceUnavailableException.class, GameLoanDeclinedException.class, GameSpeedBoostOnCooldownException.class,
+            GameAdvisorAlreadyHiredException.class, GamePositionAlreadyInsuredException.class})
     public ResponseEntity<ApiError> handleConflict(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, List.of(e.getMessage()), request);
     }

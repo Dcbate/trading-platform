@@ -4,8 +4,13 @@ import com.dcbate.tradingplatform.domain.GameDifficulty;
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -64,6 +69,46 @@ public class GameMarketServiceImpl implements GameMarketService {
     private static final int MIN_REGIME_TICKS = 10;
     private static final int MAX_REGIME_TICKS = 40;
 
+    // Stock-only, every difficulty tier (unlike the chaos spike above, which is Rogue-only) — a
+    // rare, outsized one-tick shock on top of whatever regime is already in play, modeling a real
+    // market crash (or, less often, a rally) rather than the routine up/down drift the
+    // regime+jitter model produces. 0.05% per stock symbol per tick works out to roughly 1-2
+    // expected shocks across all 10 stocks over a full 15-30 minute session (confirmed by playing
+    // several sessions through) — rare enough to be a genuine event, not so rare it's never seen.
+    // Weighted toward crashes (65/35) rather than an even split — "stocks should crash sometimes"
+    // was the original ask this mechanism was built for; rallies are a real but secondary flavor
+    // on top, not a coin flip that could just as easily always favor the player.
+    private static final double STOCK_SHOCK_PROBABILITY = 0.0005;
+    private static final double STOCK_SHOCK_DOWN_ODDS = 0.65;
+    private static final double STOCK_SHOCK_MIN_MOVE_FRACTION = 0.12;
+    private static final double STOCK_SHOCK_MAX_MOVE_FRACTION = 0.30;
+
+    // Headline variety is cosmetic only — never affects price math — but a single fixed template
+    // reads as an obvious log line rather than "news," which is the whole point of surfacing these.
+    private static final String[] CRASH_HEADLINES = {
+            "%s crashes %d%% — panic selling wipes out gains",
+            "%s craters %d%% in a single tick — a brutal drop",
+            "%s plunges %d%% as sellers rush for the exit",
+    };
+    private static final String[] RALLY_HEADLINES = {
+            "%s rallies %d%% — buyers pile in all at once",
+            "%s rockets %d%% in a single tick — a stunning surge",
+            "%s soars %d%% as a wave of buying hits the tape",
+    };
+    private static final String CHAOS_SPIKE_UP_HEADLINE = "%s spikes %d%% out of nowhere — a sudden surge";
+    private static final String CHAOS_SPIKE_DOWN_HEADLINE = "%s plunges %d%% in a flash — Rogue mode chaos strikes";
+    private static final int MAX_EVENTS = 20;
+
+    // A player-triggered burst that compresses this many ticks' worth of regime movement/shock
+    // rolls into the same 5-second scheduler window a normal tick already runs on — a genuine
+    // fast-forward (more ticks = more regime progression, more chances for a crash/rally to roll),
+    // not a cosmetic polling trick. Shared tier-wide since the market itself is (see class
+    // javadoc): everyone currently in that difficulty feels the same speed-up. 3x rather than
+    // higher keeps one boost from skipping a whole regime (10-40 ticks) past in a single window,
+    // which would read as teleporting rather than fast-forwarding.
+    private static final int SPEED_BOOST_TICK_MULTIPLIER = 3;
+    private static final int SPEED_BOOST_DURATION_SECONDS = 60;
+
     /** One symbol's live state: its price, and the trend regime currently driving it. */
     private static final class SymbolState {
         private volatile BigDecimal price;
@@ -76,6 +121,11 @@ public class GameMarketServiceImpl implements GameMarketService {
     }
 
     private final Map<GameDifficulty, Map<String, SymbolState>> statesByDifficulty = new EnumMap<>(GameDifficulty.class);
+    private final Map<GameDifficulty, Deque<GameMarketEvent>> eventsByDifficulty = new EnumMap<>(GameDifficulty.class);
+
+    // Plain ConcurrentHashMap, not EnumMap — writes come from arbitrary HTTP request threads
+    // (activateSpeedBoost), reads from the scheduler thread (tick(), via currentSpeedMultiplier).
+    private final Map<GameDifficulty, Instant> speedBoostExpiresAt = new ConcurrentHashMap<>();
 
     @PostConstruct
     void seed() {
@@ -84,6 +134,20 @@ public class GameMarketServiceImpl implements GameMarketService {
             FX_SEED_PRICES.forEach((symbol, price) -> states.put(symbol, new SymbolState(price)));
             STOCK_SEED_PRICES.forEach((symbol, price) -> states.put(symbol, new SymbolState(price)));
             statesByDifficulty.put(difficulty, states);
+            eventsByDifficulty.put(difficulty, new ArrayDeque<>(MAX_EVENTS));
+        }
+    }
+
+    /** Only the scheduler thread ever calls {@code tick()} (see {@code GameMarketScheduler}), so writes here are
+     * effectively single-threaded — the {@code synchronized} block is purely to stay safe against concurrent reads
+     * from {@link #recentEvents}, not against concurrent writers. */
+    private void recordEvent(GameDifficulty difficulty, String symbol, String headline, boolean priceUp, int magnitudePercent) {
+        Deque<GameMarketEvent> events = eventsByDifficulty.get(difficulty);
+        synchronized (events) {
+            events.addFirst(new GameMarketEvent(symbol, headline, priceUp, magnitudePercent, Instant.now()));
+            while (events.size() > MAX_EVENTS) {
+                events.removeLast();
+            }
         }
     }
 
@@ -91,21 +155,25 @@ public class GameMarketServiceImpl implements GameMarketService {
     public void tick() {
         for (GameDifficulty difficulty : GameDifficulty.values()) {
             Map<String, SymbolState> states = statesByDifficulty.get(difficulty);
-            for (String symbol : FX_SYMBOLS) {
-                advance(states.get(symbol), difficulty.getFxVolatility(), difficulty.isChaosMode());
-            }
-            for (String symbol : STOCK_SEED_PRICES.keySet()) {
-                advance(states.get(symbol), difficulty.getStockVolatility(), difficulty.isChaosMode());
+            int ticksThisInvocation = currentSpeedMultiplier(difficulty);
+            for (int i = 0; i < ticksThisInvocation; i++) {
+                for (String symbol : FX_SYMBOLS) {
+                    advance(states.get(symbol), symbol, difficulty, difficulty.getFxVolatility(), difficulty.isChaosMode(), false);
+                }
+                for (String symbol : STOCK_SEED_PRICES.keySet()) {
+                    advance(states.get(symbol), symbol, difficulty, difficulty.getStockVolatility(), difficulty.isChaosMode(), true);
+                }
             }
         }
     }
 
     /**
      * Advances one symbol by one tick: rolls a new trend regime if the current one has run out,
-     * applies that regime's bias plus a small residual jitter, and — for chaos-mode difficulties
-     * only — occasionally layers an outsized one-tick spike on top.
+     * applies that regime's bias plus a small residual jitter, layers an outsized symmetric spike
+     * on top for chaos-mode difficulties only, and — for stock symbols, at every difficulty tier —
+     * occasionally layers a rare shock (crash or, less often, rally) on top of that.
      */
-    private void advance(SymbolState state, double baseVolatility, boolean chaosMode) {
+    private void advance(SymbolState state, String symbol, GameDifficulty difficulty, double baseVolatility, boolean chaosMode, boolean isStock) {
         ThreadLocalRandom random = ThreadLocalRandom.current();
 
         if (state.regimeTicksRemaining <= 0) {
@@ -123,6 +191,22 @@ public class GameMarketServiceImpl implements GameMarketService {
         if (chaosMode && random.nextDouble() < CHAOS_SPIKE_PROBABILITY) {
             double spike = CHAOS_SPIKE_MOVE_FRACTION * (random.nextBoolean() ? 1 : -1);
             pctMove += spike;
+            int magnitudePercent = (int) Math.round(Math.abs(spike) * 100);
+            String headline = (spike > 0 ? CHAOS_SPIKE_UP_HEADLINE : CHAOS_SPIKE_DOWN_HEADLINE).formatted(symbol, magnitudePercent);
+            recordEvent(difficulty, symbol, headline, spike > 0, magnitudePercent);
+        }
+
+        if (isStock && random.nextDouble() < STOCK_SHOCK_PROBABILITY) {
+            double magnitude = STOCK_SHOCK_MIN_MOVE_FRACTION
+                    + random.nextDouble() * (STOCK_SHOCK_MAX_MOVE_FRACTION - STOCK_SHOCK_MIN_MOVE_FRACTION);
+            boolean isCrash = random.nextDouble() < STOCK_SHOCK_DOWN_ODDS;
+            pctMove += isCrash ? -magnitude : magnitude;
+            int magnitudePercent = (int) Math.round(magnitude * 100);
+            String[] headlines = isCrash ? CRASH_HEADLINES : RALLY_HEADLINES;
+            String headline = headlines[random.nextInt(headlines.length)].formatted(symbol, magnitudePercent);
+            recordEvent(difficulty, symbol, headline, !isCrash, magnitudePercent);
+            log.info("Game Mode stock {}: symbol={}, difficulty={}, move={}%",
+                    isCrash ? "crash" : "rally", symbol, difficulty, magnitudePercent);
         }
 
         BigDecimal next = state.price.add(state.price.multiply(BigDecimal.valueOf(pctMove))).setScale(4, RoundingMode.HALF_UP);
@@ -144,5 +228,34 @@ public class GameMarketServiceImpl implements GameMarketService {
     @Override
     public boolean isTradableSymbol(String symbol) {
         return FX_SYMBOLS.contains(symbol) || STOCK_SEED_PRICES.containsKey(symbol);
+    }
+
+    @Override
+    public boolean isStockSymbol(String symbol) {
+        return STOCK_SEED_PRICES.containsKey(symbol);
+    }
+
+    @Override
+    public void activateSpeedBoost(GameDifficulty difficulty) {
+        speedBoostExpiresAt.put(difficulty, Instant.now().plusSeconds(SPEED_BOOST_DURATION_SECONDS));
+    }
+
+    @Override
+    public int currentSpeedMultiplier(GameDifficulty difficulty) {
+        Instant expiresAt = speedBoostExpiresAt.get(difficulty);
+        return expiresAt != null && expiresAt.isAfter(Instant.now()) ? SPEED_BOOST_TICK_MULTIPLIER : 1;
+    }
+
+    @Override
+    public Optional<Boolean> currentTrendUp(GameDifficulty difficulty, String symbol) {
+        return Optional.ofNullable(statesByDifficulty.get(difficulty).get(symbol)).map(s -> s.trendPerTick >= 0);
+    }
+
+    @Override
+    public List<GameMarketEvent> recentEvents(GameDifficulty difficulty) {
+        Deque<GameMarketEvent> events = eventsByDifficulty.get(difficulty);
+        synchronized (events) {
+            return new ArrayList<>(events);
+        }
     }
 }

@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Gamepad2, Trophy, Target, X } from 'lucide-react'
+import { Gamepad2, Trophy, Target, X, Medal } from 'lucide-react'
 import { apiErrorMessage } from '../api/client'
 import { useGameClientId } from '../hooks/useGameClientId'
-import { useGameDifficulties, useGameStats, useStartGame } from '../hooks/useGame'
-import { formatMoney } from '../lib/format'
-import { pageTitle, listSection } from '../lib/styles'
-import type { GameDifficultyCode, GameDifficultyResponse } from '../types/api'
+import { useGameDifficulties, useGameLeaderboard, useGameStats, useStartGame } from '../hooks/useGame'
+import { formatCountdown, formatMoney } from '../lib/format'
+import { pageTitle, listSection, input } from '../lib/styles'
+import type { GameDifficultyCode, GameDifficultyResponse, GameLeaderboardSortBy } from '../types/api'
 
 const HINT_SEEN_KEY = 'bate-banking-game-hint-seen'
 
@@ -44,6 +44,84 @@ function DifficultyCard({ difficulty, onPlay, isPending }: { difficulty: GameDif
         {isPending ? 'Starting…' : 'Play'}
       </span>
     </button>
+  )
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  WON: 'Won',
+  LOST_TIME: 'Time out',
+  LOST_BANKRUPT: 'Bankrupt',
+}
+
+const SORT_BY_LABEL: Record<GameLeaderboardSortBy, string> = {
+  NET_WORTH: 'Best net worth',
+  FASTEST_WIN: 'Fastest win',
+}
+
+function Leaderboard({ difficulties, clientId }: { difficulties: GameDifficultyResponse[] | undefined; clientId: string }) {
+  const [difficulty, setDifficulty] = useState<GameDifficultyCode>('APPRENTICE')
+  const [sortBy, setSortBy] = useState<GameLeaderboardSortBy>('NET_WORTH')
+  const { data: leaderboard } = useGameLeaderboard(difficulty, sortBy, clientId)
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Medal size={16} strokeWidth={2} className="text-warning-600" />
+          <h2 className="text-base font-semibold text-ink-900">Leaderboard</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex overflow-hidden rounded-lg border border-ink-100">
+            {(Object.keys(SORT_BY_LABEL) as GameLeaderboardSortBy[]).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setSortBy(option)}
+                className={`px-3 py-2 text-xs font-semibold transition ${sortBy === option ? 'bg-primary-600 text-white' : 'bg-surface text-ink-600 hover:bg-canvas'}`}
+              >
+                {SORT_BY_LABEL[option]}
+              </button>
+            ))}
+          </div>
+          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as GameDifficultyCode)} className={`w-40 ${input}`}>
+            {difficulties?.map((d) => (
+              <option key={d.code} value={d.code}>
+                {d.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {sortBy === 'FASTEST_WIN' && (
+        <p className="mb-2 text-xs text-ink-400">Wins only — a fast loss isn't something to rank.</p>
+      )}
+      <div className={listSection}>
+        {!leaderboard || leaderboard.entries.length === 0 ? (
+          <p className="py-4 text-sm text-ink-400">
+            {sortBy === 'FASTEST_WIN' ? 'No wins yet at this difficulty — be the first.' : 'No finished games yet at this difficulty — be the first.'}
+          </p>
+        ) : (
+          leaderboard.entries.map((entry) => (
+            <div
+              key={entry.rank}
+              className={`flex items-center justify-between py-2.5 text-sm ${entry.mine ? 'rounded-lg bg-primary-50 px-2 dark:bg-primary-500/10' : ''}`}
+            >
+              <span className="flex items-center gap-2">
+                <span className="w-5 shrink-0 font-mono font-semibold text-ink-400">#{entry.rank}</span>
+                <span className={`font-medium ${entry.mine ? 'text-primary-700 dark:text-primary-300' : 'text-ink-700'}`}>
+                  {entry.mine ? 'You' : 'Player'}
+                </span>
+              </span>
+              <span className="flex items-center gap-3">
+                <span className="text-xs text-ink-400">{STATUS_LABEL[entry.status] ?? entry.status}</span>
+                <span className="font-mono text-xs text-ink-400">{formatCountdown(entry.durationSeconds)}</span>
+                <span className="font-mono font-semibold text-ink-900">{formatMoney(entry.netWorth, 'GBP')}</span>
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -146,6 +224,8 @@ export function GameLobbyPage() {
           </div>
         </div>
       )}
+
+      <Leaderboard difficulties={difficulties} clientId={clientId} />
     </div>
   )
 }

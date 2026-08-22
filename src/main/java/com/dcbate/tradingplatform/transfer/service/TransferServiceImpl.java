@@ -87,11 +87,13 @@ public class TransferServiceImpl implements TransferService {
                 transfer.getStatus(), transfer.getCreatedAt()));
 
         // Two rows, one per side — a self-transfer between two of the caller's own accounts
-        // genuinely produces both an outgoing and an incoming line on the statement.
+        // genuinely produces both an outgoing and an incoming line on the statement. Described by
+        // the counterparty account's type/currency, not its owning client's id — a client id is
+        // an internal identifier, not something to surface to another client's statement.
         eventPublisher.publishEvent(new ActivityRecordedEvent(from.getClientId(), from.getAccountId(), ActivityType.TRANSFER_OUT,
-                transfer.getAmount().negate(), from.getCurrency(), "Transfer to client " + shortId(to.getClientId())));
+                transfer.getAmount().negate(), from.getCurrency(), "Transfer to " + accountLabel(to)));
         eventPublisher.publishEvent(new ActivityRecordedEvent(to.getClientId(), to.getAccountId(), ActivityType.TRANSFER_IN,
-                transfer.getAmount(), to.getCurrency(), "Transfer from client " + shortId(from.getClientId())));
+                transfer.getAmount(), to.getCurrency(), "Transfer from " + accountLabel(from)));
 
         log.info("Transfer completed: transferId={}, fromAccountId={}, toAccountId={}, amount={}",
                 transfer.getTransferId(), transfer.getFromAccountId(), transfer.getToAccountId(), transfer.getAmount());
@@ -109,8 +111,8 @@ public class TransferServiceImpl implements TransferService {
         return TransferResponse.from(transfer);
     }
 
-    private String shortId(String clientId) {
-        return clientId.length() > 8 ? clientId.substring(0, 8) : clientId;
+    private String accountLabel(Account account) {
+        return account.getNickname() != null ? account.getNickname() : account.getAccountType() + " " + account.getCurrency();
     }
 
     private Account requireActiveAccount(UUID accountId) {
