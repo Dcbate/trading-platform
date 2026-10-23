@@ -7,6 +7,7 @@ import com.dcbate.tradingplatform.game.api.dto.GameLeaderboardResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameLeaderboardSortBy;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
+import com.dcbate.tradingplatform.game.api.dto.GameMaxTradeRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameSavingsRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameSessionResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameStatsResponse;
@@ -45,6 +46,14 @@ public interface GameService {
 
     GameSessionResponse placeTrade(UUID sessionId, GameTradeRequest request, CallerPrincipal caller);
 
+    /**
+     * "Buy Max" / "Sell Max" — resolves the actual max affordable (accounting for the fee) or max
+     * held quantity against the server's own live price, atomically with executing the trade. Never
+     * fails with insufficient funds the way a client-guessed quantity from a stale cached price and
+     * fee-blind arithmetic can.
+     */
+    GameSessionResponse placeMaxTrade(UUID sessionId, GameMaxTradeRequest request, CallerPrincipal caller);
+
     /** Moves cash into savings, folding in interest accrued since the last touch first — see {@code GameServiceImpl.pendingSavingsInterest}. */
     GameSessionResponse depositToSavings(UUID sessionId, GameSavingsRequest request, CallerPrincipal caller);
 
@@ -56,8 +65,10 @@ public interface GameService {
     GameStatsResponse getStats(String clientId, CallerPrincipal caller);
 
     /**
-     * Top 10 sessions for a difficulty, ranked per {@code sortBy} — {@code NET_WORTH} across every
-     * finished session, {@code FASTEST_WIN} across WON sessions only. {@code viewerClientId} is
+     * Top 10 sessions for a difficulty, ranked per {@code sortBy} — {@code NET_WORTH} across
+     * finished sessions that didn't win (a win ends the session the instant net worth reaches the
+     * goal, so a winner's final net worth is just an accident of timing, not a skill signal — that's
+     * what {@code FASTEST_WIN} measures instead, across WON sessions only). {@code viewerClientId} is
      * optional (a guest with no identity can still browse it) and only ever used to flag which row,
      * if any, is the caller's own — no client identifier is ever returned in the response itself.
      */

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { apiErrorMessage } from '../api/client'
-import { usePlaceGameTrade } from '../hooks/useGame'
+import { usePlaceGameTrade, usePlaceGameMaxTrade } from '../hooks/useGame'
 import { REACTION_WINDOW_MS } from '../lib/gameConstants'
 import { formatMoney, formatQuantity, sanitizeWholeNumberInput } from '../lib/format'
 import { btnDanger, btnGhost, btnGhostSm, btnSuccess, card, inputSm, label } from '../lib/styles'
@@ -33,6 +33,7 @@ export function GameEventPromptModal({
   const [quantity, setQuantity] = useState('')
   const [secondsLeft, setSecondsLeft] = useState(() => remainingSeconds(event))
   const placeTrade = usePlaceGameTrade(sessionId)
+  const placeMaxTrade = usePlaceGameMaxTrade(sessionId)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -44,7 +45,10 @@ export function GameEventPromptModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event])
 
-  const maxQuantity = side === 'BUY' ? (currentPrice ? Math.floor(cash / currentPrice) : 0) : Math.floor(heldQuantity)
+  // Enable/disable signal only — the actual max is resolved server-side against its own live price
+  // and fee state (the reaction window may have just closed), so Max can never fail with
+  // "insufficient funds" the way a client-side cash/price estimate could.
+  const canAffordAny = side === 'BUY' ? Boolean(currentPrice) && cash > 0 : heldQuantity > 0
   const estimated = currentPrice && quantity ? currentPrice * Number(quantity) : undefined
 
   function submitTrade(rawQuantity: number) {
@@ -55,6 +59,22 @@ export function GameEventPromptModal({
       {
         onSuccess: (session) => {
           toast.success(`⚡ Fast reaction — fee waived on ${roundedQuantity} ${event.symbol}`)
+          onTraded(session)
+          onDismiss()
+        },
+        onError: (error) => toast.error(apiErrorMessage(error)),
+      },
+    )
+  }
+
+  function submitMax() {
+    placeMaxTrade.mutate(
+      { symbol: event.symbol, side },
+      {
+        onSuccess: (session) => {
+          const newHeld = session.positions.find((p) => p.symbol === event.symbol)?.quantity ?? 0
+          const filled = side === 'BUY' ? newHeld - heldQuantity : heldQuantity
+          toast.success(filled > 0 ? `${side === 'BUY' ? 'Bought' : 'Sold'} ${formatQuantity(filled)} ${event.symbol}` : `Nothing to ${side === 'BUY' ? 'buy' : 'sell'}`)
           onTraded(session)
           onDismiss()
         },
@@ -100,8 +120,8 @@ export function GameEventPromptModal({
             placeholder="Quantity"
             className={`flex-1 ${inputSm}`}
           />
-          <button type="button" onClick={() => setQuantity(String(maxQuantity))} disabled={maxQuantity <= 0} className={btnGhostSm}>
-            Max
+          <button type="button" onClick={submitMax} disabled={!canAffordAny || placeMaxTrade.isPending} className={btnGhostSm}>
+            {placeMaxTrade.isPending ? 'Submitting…' : 'Max'}
           </button>
         </div>
 

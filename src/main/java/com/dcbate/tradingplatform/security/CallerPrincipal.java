@@ -42,6 +42,36 @@ public record CallerPrincipal(String clientId, boolean staff) {
         return new CallerPrincipal(authentication.getName(), staff);
     }
 
+    /**
+     * Game Mode's own resolution — {@code /v1/game/**} is the one production path where an
+     * anonymous caller is expected (playable without an account, see {@code SecurityConfig}'s
+     * permitAll entry and docs/GAME_MODE.md §6/§7), and {@link #from}'s null branch was never meant
+     * for that: it exists so the local {@code dev} profile's anonymous principal — which is
+     * genuinely trusted, since every request in that profile is a developer on their own machine —
+     * can act as staff for curl convenience. Reusing it for real anonymous guest traffic made
+     * {@link #requireOwner} a silent no-op for the entire feature: any guest could take any action
+     * on any other guest's session, since {@code staff=true} short-circuits the check regardless of
+     * whose resource is being touched (confirmed live — a second, unrelated guest identity placed a
+     * trade against a session it never created).
+     *
+     * <p>A real, JWT-verified identity (a logged-in client playing Game Mode) still always wins and
+     * behaves exactly like {@link #from} — {@code guestClientId} only matters when
+     * {@code authentication} is null. In that case the caller is a genuine anonymous guest with no
+     * verifiable identity at all, so {@code guestClientId} (the same client-generated id the
+     * frontend already sends via the {@code X-Game-Client-Id} header, matching whatever it used to
+     * start the session) becomes their identity instead — unverified, but no longer omnipotent:
+     * {@code staff} is explicitly {@code false}, so {@link #requireOwner} actually compares it
+     * against the resource being accessed. A missing header falls back to {@code ""}, which can't
+     * match any real session's {@code clientId} — failing closed (rejected) rather than throwing a
+     * {@code NullPointerException} out of {@link #requireOwner}.
+     */
+    public static CallerPrincipal fromGameCaller(Authentication authentication, String guestClientId) {
+        if (authentication != null) {
+            return from(authentication);
+        }
+        return new CallerPrincipal(guestClientId != null ? guestClientId : "", false);
+    }
+
     /** Throws unless the caller owns {@code resourceClientId} or is staff. */
     public void requireOwner(String resourceClientId) {
         if (!staff && !clientId.equals(resourceClientId)) {

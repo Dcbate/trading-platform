@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ArrowLeft, Award, Flame, Landmark, Newspaper, PartyPopper, PiggyBank, ShieldCheck, SkullIcon, Sparkles, TimerOff, Zap } from 'lucide-react'
-import { apiErrorMessage } from '../api/client'
+import { apiErrorMessage, apiErrorStatus } from '../api/client'
+import { GameActionDeclinedModal, GameInfoModal } from '../components/GameActionDeclinedModal'
 import { GameEventPromptModal } from '../components/GameEventPromptModal'
 import {
   useGameDebrief,
@@ -21,6 +22,7 @@ import {
   useDepositToGameSavings,
   useWithdrawFromGameSavings,
   usePlaceGameTrade,
+  usePlaceGameMaxTrade,
 } from '../hooks/useGame'
 import { REACTION_WINDOW_MS } from '../lib/gameConstants'
 import { formatCountdown, formatMoney, formatQuantity, sanitizeWholeNumberInput } from '../lib/format'
@@ -84,13 +86,13 @@ function MarketNewsTicker({ events, sessionStartedAt }: { events: GameMarketEven
   const looped = [...items, ...items]
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 flex h-11 items-center gap-3 border-t border-warning-100 bg-warning-50 px-4 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] dark:border-warning-500/20 dark:bg-warning-950">
-      <span className="flex shrink-0 items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-warning-700 dark:text-warning-400">
+    <div className="fixed inset-x-0 bottom-0 z-40 flex h-11 items-center gap-3 border-t border-warning-100 bg-warning-50 px-4 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] dark:border-warning-500/20 dark:bg-warning-500/15">
+      <span className="flex shrink-0 items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-warning-700">
         <Newspaper size={14} strokeWidth={2.5} />
         Market news
       </span>
       <div className="relative flex-1 overflow-hidden">
-        <div className="flex w-max animate-game-news-scroll gap-12 whitespace-nowrap text-sm text-ink-700 dark:text-ink-200">
+        <div className="flex w-max animate-game-news-scroll gap-12 whitespace-nowrap text-sm text-ink-700">
           {looped.map((text, i) => (
             <span key={i}>{text}</span>
           ))}
@@ -125,7 +127,7 @@ function GoalProgress({ session }: { session: GameSessionResponse }) {
             Goal <span className="font-mono font-semibold text-ink-700">{formatMoney(session.goalAmount, 'GBP')}</span>
           </p>
           {session.currentStreak >= 2 && (
-            <span className="flex items-center gap-1 rounded-full bg-warning-50 px-2.5 py-1 text-xs font-bold text-warning-700 dark:bg-warning-500/15 dark:text-warning-400">
+            <span className="flex items-center gap-1 rounded-full bg-warning-50 px-2.5 py-1 text-xs font-bold text-warning-700 dark:bg-warning-500/15">
               <Flame size={13} strokeWidth={2.5} />
               {session.currentStreak} in a row
             </span>
@@ -137,8 +139,10 @@ function GoalProgress({ session }: { session: GameSessionResponse }) {
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-ink-100 pt-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-ink-400">Cash to spend</span>
-        <span className="font-mono text-sm font-semibold text-ink-900">{formatMoney(session.cash, 'GBP')}</span>
-        <span className="text-xs text-ink-400">— not the same as net worth above</span>
+        <span className={`font-mono text-sm font-semibold ${session.cash < 0 ? 'text-error-600' : 'text-ink-900'}`}>{formatMoney(session.cash, 'GBP')}</span>
+        <span className="text-xs text-ink-400">
+          {session.cash < 0 ? '— overdrawn, accruing interest' : '— not the same as net worth above'}
+        </span>
         <span className="ml-auto flex items-center gap-3">
           {session.totalDividendsPaid > 0 && (
             <span className="text-xs text-ink-400">
@@ -148,6 +152,11 @@ function GoalProgress({ session }: { session: GameSessionResponse }) {
           {session.totalTaxPaid > 0 && (
             <span className="text-xs text-ink-400">
               Tax paid: <span className="font-mono font-semibold text-error-600">{formatMoney(session.totalTaxPaid, 'GBP')}</span>
+            </span>
+          )}
+          {session.totalOverdraftInterestPaid > 0 && (
+            <span className="text-xs text-ink-400">
+              Overdraft interest: <span className="font-mono font-semibold text-error-600">{formatMoney(session.totalOverdraftInterestPaid, 'GBP')}</span>
             </span>
           )}
         </span>
@@ -307,7 +316,7 @@ function SpeedBoostButton({ sessionId, speedBoostAvailableAt, marketSpeedMultipl
 
   if (boosted) {
     return (
-      <span className="flex items-center gap-1.5 rounded-lg bg-warning-50 px-3 py-2 text-xs font-bold text-warning-700 dark:bg-warning-500/15 dark:text-warning-400">
+      <span className="flex items-center gap-1.5 rounded-lg bg-warning-50 px-3 py-2 text-xs font-bold text-warning-700 dark:bg-warning-500/15">
         <Zap size={14} strokeWidth={2.5} />
         {marketSpeedMultiplier}x speed
       </span>
@@ -368,12 +377,12 @@ function AdvisorPanel({
           {session.advisorTipSymbol && session.advisorTipSide ? (
             <div>
               <p className="text-sm font-semibold text-ink-900">
-                Wealth manager's tip: <span className={session.advisorTipSide === 'BUY' ? 'text-success-600' : 'text-error-600'}>{session.advisorTipSide}</span> {session.advisorTipSymbol}
+                Accountant's tip: <span className={session.advisorTipSide === 'BUY' ? 'text-success-600' : 'text-error-600'}>{session.advisorTipSide}</span> {session.advisorTipSymbol}
               </p>
               <p className="text-xs text-ink-400">Right roughly 6 times in 10 — a real edge, not a sure thing{secondsUntilNextTip !== null && ` · next tip in ${secondsUntilNextTip}s`}</p>
             </div>
           ) : (
-            <p className="text-sm text-ink-400">Wealth manager hired — your first tip is coming shortly.</p>
+            <p className="text-sm text-ink-400">Accountant hired — your first tip is coming shortly.</p>
           )}
         </div>
         {session.advisorTipSymbol && (
@@ -389,7 +398,7 @@ function AdvisorPanel({
     return (
       <button type="button" onClick={() => setOpen(true)} className={btnGhost}>
         <Landmark size={15} strokeWidth={2} />
-        Hire a wealth manager
+        Hire an accountant
       </button>
     )
   }
@@ -397,7 +406,7 @@ function AdvisorPanel({
   return (
     <div className={`${card} flex flex-wrap items-center gap-3`}>
       <p className="max-w-xs text-xs text-ink-400">
-        A one-time fee of {formatMoney(hireFeeEstimate, 'GBP')} hires an advisor who periodically tips a symbol — right roughly 62% of the time, built on the
+        A one-time fee of {formatMoney(hireFeeEstimate, 'GBP')} hires an accountant who periodically tips a symbol — right roughly 62% of the time, built on the
         same momentum you could read off the ticker yourself. A real bet, not a cheat code.
       </p>
       <div className="flex gap-2">
@@ -407,7 +416,7 @@ function AdvisorPanel({
           onClick={() =>
             hireAdvisor.mutate(undefined, {
               onSuccess: () => {
-                toast.success(`Hired a wealth manager for ${formatMoney(hireFeeEstimate, 'GBP')}`)
+                toast.success(`Hired an accountant for ${formatMoney(hireFeeEstimate, 'GBP')}`)
                 setOpen(false)
               },
               onError: (error) => toast.error(apiErrorMessage(error)),
@@ -481,57 +490,78 @@ function InsureRowAction({ sessionId, position }: { sessionId: string; position:
 function LoanPanel({ sessionId, ratePercent }: { sessionId: string; ratePercent: number }) {
   const [amount, setAmount] = useState('')
   const [open, setOpen] = useState(false)
+  const [declineMessage, setDeclineMessage] = useState<string | null>(null)
   const takeLoan = useTakeGameLoan(sessionId)
+
+  const declineModal = declineMessage && <GameActionDeclinedModal title="Loan declined" message={declineMessage} onDismiss={() => setDeclineMessage(null)} />
+
+  function handleError(error: unknown) {
+    // A 409 here is specifically GameLoanDeclinedException — the credit check failing — which
+    // deserves a moment's worth of real explanation, not a toast that's gone in a few seconds.
+    // Anything else (network failure, a 500) is still a plain toast, since "Loan declined" would
+    // be the wrong framing for those.
+    if (apiErrorStatus(error) === 409) {
+      setDeclineMessage(apiErrorMessage(error))
+    } else {
+      toast.error(apiErrorMessage(error))
+    }
+  }
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)} className={btnGhost}>
-        <Landmark size={15} strokeWidth={2} />
-        Take a loan
-      </button>
+      <>
+        <button type="button" onClick={() => setOpen(true)} className={btnGhost}>
+          <Landmark size={15} strokeWidth={2} />
+          Take a loan
+        </button>
+        {declineModal}
+      </>
     )
   }
 
   return (
-    <div className={`${card} flex flex-wrap items-end gap-3`}>
-      <div className="flex flex-col gap-1.5">
-        <label className={label}>Loan amount</label>
-        <input
-          type="number"
-          min="1"
-          step="1"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          className={`w-32 ${input}`}
-          autoFocus
-        />
+    <>
+      <div className={`${card} flex flex-wrap items-end gap-3`}>
+        <div className="flex flex-col gap-1.5">
+          <label className={label}>Loan amount</label>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className={`w-32 ${input}`}
+            autoFocus
+          />
+        </div>
+        <p className="text-xs text-ink-400">
+          {ratePercent}% of the outstanding balance accrues as interest every minute it's unpaid — repay it any time from "My loans" below.
+        </p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={takeLoan.isPending || !amount}
+            onClick={() =>
+              takeLoan.mutate(Number(amount), {
+                onSuccess: () => {
+                  toast.success(`Borrowed ${formatMoney(Number(amount), 'GBP')}`)
+                  setAmount('')
+                  setOpen(false)
+                },
+                onError: handleError,
+              })
+            }
+            className={btnPrimary}
+          >
+            {takeLoan.isPending ? 'Borrowing…' : 'Confirm loan'}
+          </button>
+          <button type="button" onClick={() => setOpen(false)} className={btnGhostSm}>
+            Cancel
+          </button>
+        </div>
       </div>
-      <p className="text-xs text-ink-400">
-        {ratePercent}% of the outstanding balance accrues as interest every minute it's unpaid — repay it any time from "My loans" below.
-      </p>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={takeLoan.isPending || !amount}
-          onClick={() =>
-            takeLoan.mutate(Number(amount), {
-              onSuccess: () => {
-                toast.success(`Borrowed ${formatMoney(Number(amount), 'GBP')}`)
-                setAmount('')
-                setOpen(false)
-              },
-              onError: (error) => toast.error(apiErrorMessage(error)),
-            })
-          }
-          className={btnPrimary}
-        >
-          {takeLoan.isPending ? 'Borrowing…' : 'Confirm loan'}
-        </button>
-        <button type="button" onClick={() => setOpen(false)} className={btnGhostSm}>
-          Cancel
-        </button>
-      </div>
-    </div>
+      {declineModal}
+    </>
   )
 }
 
@@ -539,80 +569,106 @@ function SavingsPanel({ sessionId, savingsBalance }: { sessionId: string; saving
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<'DEPOSIT' | 'WITHDRAW'>('DEPOSIT')
   const [amount, setAmount] = useState('')
+  const [declineMessage, setDeclineMessage] = useState<string | null>(null)
   const deposit = useDepositToGameSavings(sessionId)
   const withdraw = useWithdrawFromGameSavings(sessionId)
   const mutation = mode === 'DEPOSIT' ? deposit : withdraw
 
+  const declineModal = declineMessage && (
+    <GameActionDeclinedModal
+      title={mode === 'DEPOSIT' ? 'Insufficient funds' : 'Insufficient savings'}
+      message={declineMessage}
+      onDismiss={() => setDeclineMessage(null)}
+    />
+  )
+
+  function handleError(error: unknown) {
+    // A 409 here is GameInsufficientFundsException (deposit) or GameInsufficientSavingsException
+    // (withdraw) — same reasoning as LoanPanel's handleError: a real explanation deserves a
+    // moment on screen, not a toast that's gone before it's read.
+    if (apiErrorStatus(error) === 409) {
+      setDeclineMessage(apiErrorMessage(error))
+    } else {
+      toast.error(apiErrorMessage(error))
+    }
+  }
+
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)} className={btnGhost}>
-        <PiggyBank size={15} strokeWidth={2} />
-        Savings{savingsBalance > 0 ? ` · ${formatMoney(savingsBalance, 'GBP')}` : ''}
-      </button>
+      <>
+        <button type="button" onClick={() => setOpen(true)} className={btnGhost}>
+          <PiggyBank size={15} strokeWidth={2} />
+          Savings{savingsBalance > 0 ? ` · ${formatMoney(savingsBalance, 'GBP')}` : ''}
+        </button>
+        {declineModal}
+      </>
     )
   }
 
   return (
-    <div className={`${card} flex flex-wrap items-end gap-3`}>
-      <div className="flex flex-col gap-1.5">
-        <label className={label}>Move</label>
-        <div className="flex overflow-hidden rounded-xl border border-ink-100">
+    <>
+      <div className={`${card} flex flex-wrap items-end gap-3`}>
+        <div className="flex flex-col gap-1.5">
+          <label className={label}>Move</label>
+          <div className="flex overflow-hidden rounded-xl border border-ink-100">
+            <button
+              type="button"
+              onClick={() => setMode('DEPOSIT')}
+              className={`px-3.5 py-2.5 text-sm font-semibold transition ${mode === 'DEPOSIT' ? 'bg-success-600 text-white' : 'bg-surface text-ink-600 hover:bg-canvas'}`}
+            >
+              Into savings
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('WITHDRAW')}
+              className={`px-3.5 py-2.5 text-sm font-semibold transition ${mode === 'WITHDRAW' ? 'bg-primary-600 text-white' : 'bg-surface text-ink-600 hover:bg-canvas'}`}
+            >
+              Back to cash
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className={label}>Amount</label>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className={`w-32 ${input}`}
+            autoFocus
+          />
+        </div>
+        <p className="max-w-xs text-xs text-ink-400">
+          {mode === 'DEPOSIT'
+            ? 'Savings earns 3% APR, credited every minute held — clearly worse than a good trade, but better than cash sitting idle while you wait for a move.'
+            : `Currently ${formatMoney(savingsBalance, 'GBP')} in savings.`}
+        </p>
+        <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => setMode('DEPOSIT')}
-            className={`px-3.5 py-2.5 text-sm font-semibold transition ${mode === 'DEPOSIT' ? 'bg-success-600 text-white' : 'bg-surface text-ink-600 hover:bg-canvas'}`}
+            disabled={mutation.isPending || !amount}
+            onClick={() =>
+              mutation.mutate(Number(amount), {
+                onSuccess: () => {
+                  toast.success(mode === 'DEPOSIT' ? `Moved ${formatMoney(Number(amount), 'GBP')} to savings` : `Moved ${formatMoney(Number(amount), 'GBP')} to cash`)
+                  setAmount('')
+                  setOpen(false)
+                },
+                onError: handleError,
+              })
+            }
+            className={btnPrimary}
           >
-            Into savings
+            {mutation.isPending ? 'Moving…' : mode === 'DEPOSIT' ? 'Move to savings' : 'Move to cash'}
           </button>
-          <button
-            type="button"
-            onClick={() => setMode('WITHDRAW')}
-            className={`px-3.5 py-2.5 text-sm font-semibold transition ${mode === 'WITHDRAW' ? 'bg-primary-600 text-white' : 'bg-surface text-ink-600 hover:bg-canvas'}`}
-          >
-            Back to cash
+          <button type="button" onClick={() => setOpen(false)} className={btnGhostSm}>
+            Cancel
           </button>
         </div>
       </div>
-      <div className="flex flex-col gap-1.5">
-        <label className={label}>Amount</label>
-        <input
-          type="number"
-          min="1"
-          step="1"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          className={`w-32 ${input}`}
-          autoFocus
-        />
-      </div>
-      <p className="max-w-xs text-xs text-ink-400">
-        {mode === 'DEPOSIT'
-          ? 'Savings earns 3% APR, credited every minute held — clearly worse than a good trade, but better than cash sitting idle while you wait for a move.'
-          : `Currently ${formatMoney(savingsBalance, 'GBP')} in savings.`}
-      </p>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={mutation.isPending || !amount}
-          onClick={() =>
-            mutation.mutate(Number(amount), {
-              onSuccess: () => {
-                toast.success(mode === 'DEPOSIT' ? `Moved ${formatMoney(Number(amount), 'GBP')} to savings` : `Moved ${formatMoney(Number(amount), 'GBP')} to cash`)
-                setAmount('')
-                setOpen(false)
-              },
-              onError: (error) => toast.error(apiErrorMessage(error)),
-            })
-          }
-          className={btnPrimary}
-        >
-          {mutation.isPending ? 'Moving…' : mode === 'DEPOSIT' ? 'Move to savings' : 'Move to cash'}
-        </button>
-        <button type="button" onClick={() => setOpen(false)} className={btnGhostSm}>
-          Cancel
-        </button>
-      </div>
-    </div>
+      {declineModal}
+    </>
   )
 }
 
@@ -703,6 +759,7 @@ function TradeForm({
   cash,
   heldQuantity,
   marketEvents,
+  feeRatePercent,
 }: {
   sessionId: string
   symbol: string | null
@@ -710,24 +767,33 @@ function TradeForm({
   cash: number
   heldQuantity: number
   marketEvents: GameMarketEventResponse[] | undefined
+  feeRatePercent: number
 }) {
   const [side, setSide] = useState<OrderSide>('BUY')
   const [quantity, setQuantity] = useState('')
+  const [confirming, setConfirming] = useState<{ quantity: number; isReaction: boolean } | null>(null)
   const placeTrade = usePlaceGameTrade(sessionId)
+  const placeMaxTrade = usePlaceGameMaxTrade(sessionId)
 
   const estimated = price && quantity ? price * Number(quantity) : undefined
-  const maxQuantity = side === 'BUY' ? (price ? Math.floor(cash / price) : 0) : Math.floor(heldQuantity)
+  // A rough enable/disable signal only — not sent anywhere. The actual max quantity is resolved
+  // server-side (accounting for the fee and the server's own live price), so Buy/Sell Max can
+  // never fail with "insufficient funds" the way this client-side estimate could.
+  const canAffordAny = side === 'BUY' ? Boolean(price) && cash > 0 : heldQuantity > 0
 
   if (!symbol) {
     return <p className="text-sm text-ink-400">Pick a symbol from the market list to trade it.</p>
   }
 
-  function submitTrade(rawQuantity: number) {
+  function handleTradeResult(session: GameSessionResponse) {
+    if (session.status !== 'IN_PROGRESS') {
+      toast(session.status === 'WON' ? 'You reached the goal!' : 'Game over', { icon: session.status === 'WON' ? '🎉' : '⏱️' })
+    }
+  }
+
+  function submitTrade(rawQuantity: number, isReaction: boolean) {
     if (!symbol || rawQuantity <= 0) return
     const roundedQuantity = Math.round(rawQuantity)
-    const isReaction = (marketEvents ?? []).some(
-      (e) => e.symbol === symbol && Date.now() - new Date(e.occurredAt).getTime() < REACTION_WINDOW_MS,
-    )
     placeTrade.mutate(
       { symbol, side, quantity: roundedQuantity },
       {
@@ -738,9 +804,25 @@ function TradeForm({
               : `${side === 'BUY' ? 'Bought' : 'Sold'} ${roundedQuantity} ${symbol}`,
           )
           setQuantity('')
-          if (session.status !== 'IN_PROGRESS') {
-            toast(session.status === 'WON' ? 'You reached the goal!' : 'Game over', { icon: session.status === 'WON' ? '🎉' : '⏱️' })
-          }
+          setConfirming(null)
+          handleTradeResult(session)
+        },
+        onError: (error) => toast.error(apiErrorMessage(error)),
+      },
+    )
+  }
+
+  function submitMaxTrade() {
+    if (!symbol) return
+    placeMaxTrade.mutate(
+      { symbol, side },
+      {
+        onSuccess: (session) => {
+          const newHeld = session.positions.find((p) => p.symbol === symbol)?.quantity ?? 0
+          const filled = side === 'BUY' ? newHeld - heldQuantity : heldQuantity
+          toast.success(filled > 0 ? `${side === 'BUY' ? 'Bought' : 'Sold'} ${formatQuantity(filled)} ${symbol}` : `Nothing to ${side === 'BUY' ? 'buy' : 'sell'}`)
+          setQuantity('')
+          handleTradeResult(session)
         },
         onError: (error) => toast.error(apiErrorMessage(error)),
       },
@@ -749,11 +831,15 @@ function TradeForm({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!quantity) return
-    submitTrade(Number(quantity))
+    if (!quantity || !symbol) return
+    const isReaction = (marketEvents ?? []).some(
+      (e) => e.symbol === symbol && Date.now() - new Date(e.occurredAt).getTime() < REACTION_WINDOW_MS,
+    )
+    setConfirming({ quantity: Math.round(Number(quantity)), isReaction })
   }
 
   return (
+    <>
     <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
       <div className="flex flex-col gap-1.5">
         <label className={label}>Symbol</label>
@@ -792,12 +878,12 @@ function TradeForm({
           />
           <button
             type="button"
-            onClick={() => submitTrade(maxQuantity)}
-            disabled={maxQuantity <= 0 || placeTrade.isPending}
+            onClick={submitMaxTrade}
+            disabled={!canAffordAny || placeMaxTrade.isPending}
             className={btnGhostSm}
             title={side === 'BUY' ? 'Buy the most you can afford, right away' : 'Sell everything you hold, right away'}
           >
-            {side === 'BUY' ? 'Buy Max' : 'Sell Max'}
+            {placeMaxTrade.isPending ? 'Submitting…' : side === 'BUY' ? 'Buy Max' : 'Sell Max'}
           </button>
         </div>
       </div>
@@ -810,10 +896,60 @@ function TradeForm({
           </span>
         )}
       </div>
-      <button type="submit" disabled={placeTrade.isPending || !quantity || !price} className={side === 'BUY' ? btnSuccess : btnDanger}>
-        {placeTrade.isPending ? 'Submitting…' : `${side === 'BUY' ? 'Buy' : 'Sell'} ${symbol}`}
+      <button type="submit" disabled={!quantity || !price} className={side === 'BUY' ? btnSuccess : btnDanger}>
+        {side === 'BUY' ? 'Buy' : 'Sell'} {symbol}
       </button>
     </form>
+    {confirming && (() => {
+      const confirmNotional = (price ?? 0) * confirming.quantity
+      const confirmFee = confirming.isReaction ? 0 : Math.round(confirmNotional * (feeRatePercent / 100) * 100) / 100
+      const confirmNet = side === 'BUY' ? confirmNotional + confirmFee : confirmNotional - confirmFee
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/60 px-4" role="dialog" aria-modal="true">
+          <div className={`${card} w-full max-w-sm`}>
+            <p className="text-sm font-semibold text-ink-900">{side === 'BUY' ? 'Confirm purchase' : 'Confirm sale'}</p>
+            <div className="mt-3 flex flex-col gap-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-ink-400">{side === 'BUY' ? 'Buying' : 'Selling'}</span>
+                <span className="font-mono font-semibold text-ink-900">{formatQuantity(confirming.quantity)} {symbol}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-ink-400">Price</span>
+                <span className="font-mono text-ink-700">{formatMoney(price ?? 0, 'GBP')} / share</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-ink-400">{side === 'BUY' ? 'Cost' : 'Proceeds'}</span>
+                <span className="font-mono text-ink-700">{formatMoney(confirmNotional, 'GBP')}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-ink-400">{confirming.isReaction ? 'Fee (waived — fast reaction)' : `Fee (${feeRatePercent}%)`}</span>
+                <span className={`font-mono font-semibold ${confirming.isReaction ? 'text-success-600' : 'text-error-600'}`}>
+                  {confirming.isReaction ? 'Waived' : `−${formatMoney(confirmFee, 'GBP')}`}
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-t border-ink-100 pt-2">
+                <span className="font-semibold text-ink-900">{side === 'BUY' ? "You'll pay" : "You'll receive"}</span>
+                <span className="font-mono text-base font-bold text-ink-900">{formatMoney(confirmNet, 'GBP')}</span>
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                disabled={placeTrade.isPending}
+                onClick={() => submitTrade(confirming.quantity, confirming.isReaction)}
+                className={`flex-1 ${side === 'BUY' ? btnSuccess : btnDanger}`}
+              >
+                {placeTrade.isPending ? 'Submitting…' : 'Confirm'}
+              </button>
+              <button type="button" onClick={() => setConfirming(null)} className={btnGhost}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    })()}
+    </>
   )
 }
 
@@ -1028,6 +1164,12 @@ export function GamePlayPage() {
   const [activePromptEvent, setActivePromptEvent] = useState<GameMarketEventResponse | null>(null)
   const dismissedEventKeys = useRef<Set<string>>(new Set())
   const previousTotalTaxPaid = useRef<number | null>(null)
+  const previousTotalDividendsPaid = useRef<number | null>(null)
+  const previousTotalOverdraftInterestPaid = useRef<number | null>(null)
+  const taxExplained = useRef(false)
+  const dividendsExplained = useRef(false)
+  const overdraftExplained = useRef(false)
+  const [mechanicExplainer, setMechanicExplainer] = useState<{ icon: typeof Landmark; title: string; message: string } | null>(null)
 
   useEffect(() => {
     if (session) setTimeRemaining(session.timeRemainingSeconds)
@@ -1076,17 +1218,72 @@ export function GamePlayPage() {
     setActivePromptEvent(null)
   }
 
-  // Tax settles silently in the background (see docs/GAME_MODE.md) — without this, a small
-  // recurring deduction from cash the player didn't cause could easily read as a bug rather than
-  // the feature it is. Skips the very first render (ref starts null) so loading an already-taxed
-  // session doesn't fire a toast for tax paid before this page was even open.
+  // Tax and dividends both settle silently in the background (see docs/GAME_MODE.md) — without
+  // this, a recurring change to cash the player didn't directly cause could easily read as a bug
+  // rather than the feature it is. The FIRST time either ever fires in a session gets a real
+  // explainer modal (what this mechanic is, why it just happened) instead of a toast that's gone
+  // before it's read; every time after that, a lightweight toast is enough since the player
+  // already knows what it means. Both skip the very first render (ref starts null) so loading an
+  // already-taxed/already-earning session doesn't explain or toast for something that happened
+  // before this page was even open.
   useEffect(() => {
     if (!session) return
     if (previousTotalTaxPaid.current !== null && session.totalTaxPaid > previousTotalTaxPaid.current) {
-      toast(`Tax: -${formatMoney(session.totalTaxPaid - previousTotalTaxPaid.current, 'GBP')} on banked profit`, { icon: '🧾' })
+      if (!taxExplained.current) {
+        taxExplained.current = true
+        setMechanicExplainer({
+          icon: Landmark,
+          title: 'Capital gains tax',
+          message:
+            "You just banked a profitable trade, and 15% of that new profit was deducted automatically — real capital gains tax works the same way. It only ever taxes newly banked profit once: a later loss won't refund it, and profit already taxed never gets taxed again.",
+        })
+      } else {
+        toast(`Tax: -${formatMoney(session.totalTaxPaid - previousTotalTaxPaid.current, 'GBP')} on banked profit`, { icon: '🧾' })
+      }
     }
     previousTotalTaxPaid.current = session.totalTaxPaid
   }, [session?.totalTaxPaid]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!session) return
+    if (previousTotalDividendsPaid.current !== null && session.totalDividendsPaid > previousTotalDividendsPaid.current) {
+      if (!dividendsExplained.current) {
+        dividendsExplained.current = true
+        setMechanicExplainer({
+          icon: Sparkles,
+          title: 'Dividends',
+          message:
+            "Holding a stock — not just trading it — pays you a small dividend over time, the same way real shares do. It's a modest, steady trickle compared to a good trade, not the main way to win, but it rewards patience on a position you're holding anyway.",
+        })
+      } else {
+        toast(`Dividend: +${formatMoney(session.totalDividendsPaid - previousTotalDividendsPaid.current, 'GBP')}`, { icon: '💰' })
+      }
+    }
+    previousTotalDividendsPaid.current = session.totalDividendsPaid
+  }, [session?.totalDividendsPaid]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Same "first time gets a real explainer, every time after gets a toast" pattern as tax and
+  // dividends above — overdraft interest is the third silent, recurring cash change a player could
+  // otherwise mistake for a bug. Cash going negative in the first place is already flagged inline
+  // by GoalProgress ("— overdrawn, accruing interest"); this explains the specific deduction once
+  // interest actually starts being charged on it.
+  useEffect(() => {
+    if (!session) return
+    if (previousTotalOverdraftInterestPaid.current !== null && session.totalOverdraftInterestPaid > previousTotalOverdraftInterestPaid.current) {
+      if (!overdraftExplained.current) {
+        overdraftExplained.current = true
+        setMechanicExplainer({
+          icon: Landmark,
+          title: 'Overdraft interest',
+          message:
+            "Your cash went negative — usually from a tax bill bigger than what you had on hand — and it's now accruing interest at 35% APR, the same way a real overdraft does. It'll keep growing until cash gets back above zero, so sell something or top it up if you can.",
+        })
+      } else {
+        toast(`Overdraft interest: -${formatMoney(session.totalOverdraftInterestPaid - previousTotalOverdraftInterestPaid.current, 'GBP')}`, { icon: '⚠️' })
+      }
+    }
+    previousTotalOverdraftInterestPaid.current = session.totalOverdraftInterestPaid
+  }, [session?.totalOverdraftInterestPaid]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (session?.status !== 'IN_PROGRESS') return
@@ -1186,6 +1383,7 @@ export function GamePlayPage() {
               cash={session.cash}
               heldQuantity={session.positions.find((p) => p.symbol === selectedSymbol)?.quantity ?? 0}
               marketEvents={marketEvents}
+              feeRatePercent={difficulties?.find((d) => d.code === session.difficulty)?.feePercent ?? 0}
             />
           </div>
         </div>
@@ -1210,20 +1408,6 @@ export function GamePlayPage() {
           </div>
         )}
       </div>
-
-      {session.loans.length > 0 && (
-        <div>
-          <h2 className={`${sectionTitle} mb-2`}>My loans</h2>
-          <div className={listSection}>
-            {session.loans.map((l) => (
-              <div key={l.gameLoanId} className="flex items-center justify-between py-3 text-sm">
-                <span className="text-ink-700">{formatMoney(l.principal, 'GBP')} at {l.rateAnnualPercent}% APR</span>
-                <span className="font-mono font-semibold text-error-600">+{formatMoney(l.interestOwed, 'GBP')} owed</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div>
         <h2 className={`${sectionTitle} mb-2`}>Recent trades</h2>
@@ -1252,6 +1436,15 @@ export function GamePlayPage() {
         currentPrice={market?.find((p) => p.symbol === activePromptEvent.symbol)?.price}
         onDismiss={dismissPromptEvent}
         onTraded={() => setSelectedSymbol(activePromptEvent.symbol)}
+      />
+    )}
+    {mechanicExplainer && (
+      <GameInfoModal
+        icon={mechanicExplainer.icon}
+        tone="info"
+        title={mechanicExplainer.title}
+        message={mechanicExplainer.message}
+        onDismiss={() => setMechanicExplainer(null)}
       />
     )}
     </>

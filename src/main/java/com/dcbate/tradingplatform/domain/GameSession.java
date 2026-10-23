@@ -6,6 +6,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -40,6 +41,16 @@ public class GameSession {
 
     @Id
     private UUID sessionId;
+
+    // Every money-mutating Game Mode endpoint (trade, loan, savings, insurance, advisor, speed
+    // boost) reads this row, computes a new cash/state value in memory, and writes the whole row
+    // back — with no version check, two requests that overlap (a double-click, a scripted rapid
+    // double-submit) would both read the same starting cash and the second write would silently
+    // clobber the first's, letting a player effectively spend the same cash twice. Optimistic
+    // locking makes the second save fail loudly instead — see GlobalExceptionHandler's mapping of
+    // ObjectOptimisticLockingFailureException to a clean, retryable 409 for players.
+    @Version
+    private Long version;
 
     @Column(nullable = false)
     private String clientId;
@@ -93,4 +104,10 @@ public class GameSession {
     private BigDecimal totalTaxPaid;
 
     private Instant taxLastSettledAt;
+
+    /** When cash last went negative (or was last checked while negative) — null whenever cash isn't overdrawn, see {@code GameServiceImpl.settleOverdraftInterest}. */
+    private Instant overdraftLastAccrualAt;
+
+    /** Running total of overdraft interest actually deducted from cash so far this session. */
+    private BigDecimal totalOverdraftInterestPaid;
 }

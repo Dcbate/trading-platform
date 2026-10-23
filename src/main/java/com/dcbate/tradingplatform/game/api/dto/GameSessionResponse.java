@@ -38,6 +38,7 @@ public record GameSessionResponse(
         Instant advisorNextTipAt,
         BigDecimal totalDividendsPaid,
         BigDecimal totalTaxPaid,
+        BigDecimal totalOverdraftInterestPaid,
         List<GamePositionResponse> positions,
         List<GameLoanResponse> loans) {
 }

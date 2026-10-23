@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -30,9 +31,18 @@ public class GlobalExceptionHandler {
             GameSessionNotActiveException.class, GameInsufficientFundsException.class, GameInsufficientPositionException.class,
             GameInsufficientSavingsException.class, GameSessionStillInProgressException.class, AccountTypeMismatchException.class,
             CryptoPriceUnavailableException.class, GameLoanDeclinedException.class, GameSpeedBoostOnCooldownException.class,
-            GameAdvisorAlreadyHiredException.class, GamePositionAlreadyInsuredException.class})
+            GameAdvisorAlreadyHiredException.class, GamePositionAlreadyInsuredException.class, GameInsuranceUnavailableException.class})
     public ResponseEntity<ApiError> handleConflict(RuntimeException e, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, List.of(e.getMessage()), request);
+    }
+
+    // Thrown by JPA's optimistic locking (@Version) when two requests against the same row overlap
+    // — see GameSession.version's javadoc. e.getMessage() is a Hibernate-internal message (entity
+    // class name, raw id), not something a player should see, so this uses a fixed, plain-English
+    // one instead. 409 rather than 500: nothing actually broke, the request just needs a retry.
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleOptimisticLockConflict(OptimisticLockingFailureException e, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, List.of("Something else changed this session at the same moment — try that again."), request);
     }
 
     @ExceptionHandler({InvalidOrderQuantityException.class, UnsupportedCryptoSymbolException.class})

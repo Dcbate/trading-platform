@@ -25,6 +25,7 @@ import com.dcbate.tradingplatform.exception.GameLoanDeclinedException;
 import com.dcbate.tradingplatform.exception.GameSessionNotActiveException;
 import com.dcbate.tradingplatform.exception.GameSessionNotFoundException;
 import com.dcbate.tradingplatform.exception.GameAdvisorAlreadyHiredException;
+import com.dcbate.tradingplatform.exception.GameInsuranceUnavailableException;
 import com.dcbate.tradingplatform.exception.GamePositionAlreadyInsuredException;
 import com.dcbate.tradingplatform.exception.GameSessionStillInProgressException;
 import com.dcbate.tradingplatform.exception.GameSpeedBoostOnCooldownException;
@@ -32,6 +33,7 @@ import com.dcbate.tradingplatform.game.api.dto.GameDebriefResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameInsuranceRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLeaderboardSortBy;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
+import com.dcbate.tradingplatform.game.api.dto.GameMaxTradeRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameSavingsRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameSessionResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameStatsResponse;
@@ -147,6 +149,31 @@ class GameServiceImplTest {
 
         assertThat(response.status()).isEqualTo(GameStatus.WON);
         assertThat(active.getFinalNetWorth()).isEqualByComparingTo(GameDifficulty.APPRENTICE.getGoalAmount());
+    }
+
+    @Test
+    void getSessionCannotRetroactivelyWinAfterTheDeadlineHasAlreadyPassed() {
+        // Exploit this guards against: abandon a session, let its deadline pass with nobody
+        // touching it (no background job resolves sessions the instant their clock runs out — only
+        // evaluate() does, and it only runs when something touches the session), then come back
+        // whenever net worth happens to be at or above goal and claim a win untethered from the
+        // real time limit. Found live: a 15-minute Apprentice session left unevaluated 22 minutes
+        // past its deadline came back WON. Once the deadline's passed, only a loss is possible.
+        Instant start = Instant.now().minusSeconds(1200);
+        Instant deadline = start.plusSeconds(900);
+        GameSession active = session(GameDifficulty.APPRENTICE, GameDifficulty.APPRENTICE.getGoalAmount(), deadline);
+        active.setStartedAt(start);
+        when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+        when(loanRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+
+        GameSessionResponse response = gameService.getSession(active.getSessionId(), owner);
+
+        assertThat(response.status()).isEqualTo(GameStatus.LOST_TIME);
+        // The recorded finish time is the actual deadline, not whenever this late check happened to
+        // run — otherwise the leaderboard would show a bogus 20-minute "duration" for what was
+        // really a 15-minute session nobody looked at again until long after it was over.
+        assertThat(active.getFinishedAt()).isEqualTo(deadline);
     }
 
     @Test
@@ -287,12 +314,19 @@ class GameServiceImplTest {
     @Test
     void advisorTipAccuracyLandsNearTheConfiguredRateOverManyRolls() {
         // A single-symbol market with an always-up regime isolates the accuracy roll from symbol
-        // selection: the tip should agree with "up" (i.e. BUY) roughly 62% of the time.
+        // selection: the tip should agree with "up" (i.e. BUY) roughly 62% of the time. AAPL is
+        // held so a SELL tip is never forced into BUY by the "don't sell what you don't own" guard
+        // (see advisorTipNeverRecommendsSellingASymbolNotHeld) — that would mask this test's signal.
         when(marketService.currentPrices(GameDifficulty.TRADER)).thenReturn(Map.of("AAPL", new BigDecimal("100")));
         when(marketService.currentTrendUp(GameDifficulty.TRADER, "AAPL")).thenReturn(Optional.of(true));
 
         GameSession active = session(GameDifficulty.TRADER, new BigDecimal("5000"), Instant.now().plusSeconds(600));
         active.setAdvisorHired(true);
+        GamePosition held = GamePosition.builder()
+                .positionId(UUID.randomUUID()).sessionId(active.getSessionId()).symbol("AAPL")
+                .quantity(new BigDecimal("10")).avgCost(new BigDecimal("100"))
+                .build();
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of(held));
 
         int buyTips = 0;
         int rolls = 2000;
@@ -306,6 +340,50 @@ class GameServiceImplTest {
 
         double observedAccuracy = buyTips / (double) rolls;
         assertThat(observedAccuracy).isCloseTo(0.62, org.assertj.core.data.Percentage.withPercentage(15));
+    }
+
+    @Test
+    void advisorTipNeverRecommendsSellingASymbolNotHeld() {
+        // Reported live: "Accountant's tip: SELL NFLX" with no NFLX position — not actionable
+        // advice, just confusing. AAPL's regime is always down here (maximizing how often the roll
+        // would naturally land on SELL) and nothing is held, so every single tip across many rolls
+        // must come back BUY.
+        when(marketService.currentPrices(GameDifficulty.TRADER)).thenReturn(Map.of("AAPL", new BigDecimal("100")));
+        when(marketService.currentTrendUp(GameDifficulty.TRADER, "AAPL")).thenReturn(Optional.of(false));
+
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("5000"), Instant.now().plusSeconds(600));
+        active.setAdvisorHired(true);
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+
+        for (int i = 0; i < 200; i++) {
+            active.setAdvisorLastTipAt(null);
+            gameService.settleAdvisorTip(active);
+            assertThat(active.getAdvisorTipSide()).isEqualTo(OrderSide.BUY);
+        }
+    }
+
+    @Test
+    void advisorTipCanRecommendSellingASymbolThatIsHeld() {
+        // The other half of the fix: SELL must still be reachable when the symbol IS held, not
+        // suppressed outright.
+        when(marketService.currentPrices(GameDifficulty.TRADER)).thenReturn(Map.of("AAPL", new BigDecimal("100")));
+        when(marketService.currentTrendUp(GameDifficulty.TRADER, "AAPL")).thenReturn(Optional.of(false));
+
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("5000"), Instant.now().plusSeconds(600));
+        active.setAdvisorHired(true);
+        GamePosition held = GamePosition.builder()
+                .positionId(UUID.randomUUID()).sessionId(active.getSessionId()).symbol("AAPL")
+                .quantity(new BigDecimal("10")).avgCost(new BigDecimal("100"))
+                .build();
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of(held));
+
+        boolean sawSell = false;
+        for (int i = 0; i < 200 && !sawSell; i++) {
+            active.setAdvisorLastTipAt(null);
+            gameService.settleAdvisorTip(active);
+            sawSell = active.getAdvisorTipSide() == OrderSide.SELL;
+        }
+        assertThat(sawSell).isTrue();
     }
 
     @Test
@@ -419,6 +497,37 @@ class GameServiceImplTest {
     }
 
     @Test
+    void averagingDownAnInsuredPositionRecomputesTheFloorInsteadOfLeavingItStale() {
+        // Exploit this guards against: insure a small position cheaply, then buy a much bigger
+        // top-up at a far lower price. If the floor stayed pinned to the old (higher) avgCost,
+        // effectivePrice() would mark the WHOLE blended position — most of which was never bought
+        // anywhere near that floor — up to it, turning insurance into free money on a large scale.
+        // Cash kept well under TRADER's goal even after the position revalues at the floor, so
+        // this test isolates the floor recompute rather than incidentally triggering a WIN.
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("6000"), Instant.now().plusSeconds(600));
+        GamePosition position = GamePosition.builder()
+                .positionId(UUID.randomUUID()).sessionId(active.getSessionId()).symbol("AAPL")
+                .quantity(new BigDecimal("10")).avgCost(new BigDecimal("100"))
+                .insured(true).insuranceFloorPrice(new BigDecimal("85"))
+                .build();
+        when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of(position));
+        when(positionRepository.findBySessionIdAndSymbol(active.getSessionId(), "AAPL")).thenReturn(Optional.of(position));
+        when(loanRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+        when(marketService.currentPrice(GameDifficulty.TRADER, "AAPL")).thenReturn(Optional.of(new BigDecimal("5.00")));
+
+        // Buy 1000 more @ £5: new avgCost = (10*100 + 1000*5) / 1010 = 5.9405...
+        gameService.placeTrade(active.getSessionId(), new GameTradeRequest("AAPL", OrderSide.BUY, new BigDecimal("1000")), owner);
+
+        assertThat(position.getAvgCost()).isEqualByComparingTo("5.94059406");
+        // The floor must track the new blended cost, not stay at the pre-top-up 85 — otherwise the
+        // whole 1010-share position would mark at 85 despite costing ~£5.94/share on average.
+        BigDecimal expectedFloor = position.getAvgCost().multiply(new BigDecimal("0.85"));
+        assertThat(position.getInsuranceFloorPrice()).isEqualByComparingTo(expectedFloor);
+        assertThat(position.getInsuranceFloorPrice()).isLessThan(new BigDecimal("85"));
+    }
+
+    @Test
     void purchaseInsuranceRejectedWhenAlreadyInsured() {
         GameSession active = session(GameDifficulty.TRADER, new BigDecimal("5000"), Instant.now().plusSeconds(600));
         GamePosition position = GamePosition.builder()
@@ -432,6 +541,28 @@ class GameServiceImplTest {
 
         assertThatThrownBy(() -> gameService.purchaseInsurance(active.getSessionId(), new GameInsuranceRequest("AAPL"), owner))
                 .isInstanceOf(GamePositionAlreadyInsuredException.class);
+    }
+
+    @Test
+    void purchaseInsuranceRejectedWhenPriceAlreadyBelowWhereTheFloorWouldSit() {
+        // avgCost 100 -> floor would be 85; price has already crashed to 50, below that floor.
+        // Without this guard, buying insurance here would instantly mark the position back up to
+        // the 85 floor via effectivePrice() — a guaranteed payout for a 3% premium, not real risk
+        // protection, since real insurance can't cover a loss that already happened.
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("5000"), Instant.now().plusSeconds(600));
+        GamePosition position = GamePosition.builder()
+                .positionId(UUID.randomUUID()).sessionId(active.getSessionId()).symbol("AAPL")
+                .quantity(new BigDecimal("10")).avgCost(new BigDecimal("100"))
+                .build();
+        when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of(position));
+        when(positionRepository.findBySessionIdAndSymbol(active.getSessionId(), "AAPL")).thenReturn(Optional.of(position));
+        when(loanRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+        when(marketService.currentPrice(GameDifficulty.TRADER, "AAPL")).thenReturn(Optional.of(new BigDecimal("50")));
+
+        assertThatThrownBy(() -> gameService.purchaseInsurance(active.getSessionId(), new GameInsuranceRequest("AAPL"), owner))
+                .isInstanceOf(GameInsuranceUnavailableException.class);
+        assertThat(position.isInsured()).isFalse();
     }
 
     @Test
@@ -564,6 +695,52 @@ class GameServiceImplTest {
     }
 
     @Test
+    void overdraftInterestDoesNothingWhenCashIsNotNegative() {
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("1000"), Instant.now().plusSeconds(600));
+
+        gameService.settleOverdraftInterest(active);
+
+        assertThat(active.getCash()).isEqualByComparingTo("1000");
+        assertThat(active.getOverdraftLastAccrualAt()).isNull();
+    }
+
+    @Test
+    void overdraftInterestStartsTheClockWithoutChargingOnTheFirstNegativeCheck() {
+        // Mirrors settleTax's null-clock branch: the moment cash first goes negative, the clock
+        // starts from now, not retroactively — no interest is backdated for time before this check.
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("-50"), Instant.now().plusSeconds(600));
+
+        gameService.settleOverdraftInterest(active);
+
+        assertThat(active.getCash()).isEqualByComparingTo("-50");
+        assertThat(active.getOverdraftLastAccrualAt()).isNotNull();
+        assertThat(active.getTotalOverdraftInterestPaid()).isNull();
+    }
+
+    @Test
+    void overdraftInterestAccruesOnANegativeCashBalanceOverTime() {
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("-1000"), Instant.now().plusSeconds(600));
+        active.setOverdraftLastAccrualAt(Instant.now().minusSeconds(60));
+
+        gameService.settleOverdraftInterest(active);
+
+        // 1 minute (= 6 compressed days) at 35% APR on a £1000 overdraft => 1000*35*6/(100*365) ≈ 5.75
+        assertThat(active.getCash()).isCloseTo(new BigDecimal("-1005.75"), within(new BigDecimal("0.01")));
+        assertThat(active.getTotalOverdraftInterestPaid()).isGreaterThan(BigDecimal.ZERO);
+    }
+
+    @Test
+    void overdraftInterestClearsTheClockOnceCashRecovers() {
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("100"), Instant.now().plusSeconds(600));
+        active.setOverdraftLastAccrualAt(Instant.now().minusSeconds(60));
+
+        gameService.settleOverdraftInterest(active);
+
+        assertThat(active.getCash()).isEqualByComparingTo("100");
+        assertThat(active.getOverdraftLastAccrualAt()).isNull();
+    }
+
+    @Test
     void takeLoanDeclinedWhenRequestedExposureExceedsNetWorthMultiple() {
         // Net worth here is just the 100 cash (no positions, no existing loans). The credit limit
         // is 1.5x that (150), so a 10,000 request should be declined rather than silently granted.
@@ -573,7 +750,12 @@ class GameServiceImplTest {
         when(loanRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
 
         assertThatThrownBy(() -> gameService.takeLoan(active.getSessionId(), new GameLoanRequest(new BigDecimal("10000")), owner))
-                .isInstanceOf(GameLoanDeclinedException.class);
+                .isInstanceOf(GameLoanDeclinedException.class)
+                // Player-facing message: real money amounts (rounded to pence), no raw session
+                // UUID or unrounded BigDecimal scale — this is what the frontend shows directly.
+                .hasMessage("Loan declined: borrowing this much would bring your total loans to £10000.00, "
+                        + "but your credit limit is £150.00 (1.5x your current net worth of £100.00). "
+                        + "Try a smaller amount, or pay down an existing loan first.");
     }
 
     @Test
@@ -703,6 +885,63 @@ class GameServiceImplTest {
 
         assertThatThrownBy(() -> gameService.placeTrade(
                 active.getSessionId(), new GameTradeRequest("AAPL", OrderSide.BUY, new BigDecimal("10")), owner))
+                .isInstanceOf(GameInsufficientFundsException.class);
+    }
+
+    @Test
+    void buyMaxNeverOverspendsPastCashOnceTheFeeIsIncluded() {
+        // The bug this guards against: a naive client-side "max" of floor(cash / price) ignores the
+        // fee added on top of the notional, so it always overshoots cash by roughly the fee amount
+        // whenever feeRate > 0 — reliably failing with "insufficient funds" on a button that should
+        // never be able to fail that way. Rogue's 1% fee makes this the clearest case: cash 1000 @
+        // price 100 naively "affords" 10 shares (notional 1000), but 10 shares actually costs
+        // 1000 + 10 (1% fee) = 1010, more than the cash available.
+        GameSession active = session(GameDifficulty.ROGUE, new BigDecimal("1000"), Instant.now().plusSeconds(600));
+        when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+        when(positionRepository.findBySessionIdAndSymbol(active.getSessionId(), "AAPL")).thenReturn(Optional.empty());
+        when(loanRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+        when(marketService.currentPrice(GameDifficulty.ROGUE, "AAPL")).thenReturn(Optional.of(new BigDecimal("100.00")));
+
+        GameSessionResponse response = gameService.placeMaxTrade(
+                active.getSessionId(), new GameMaxTradeRequest("AAPL", OrderSide.BUY), owner);
+
+        // 9 shares: notional 900 + fee 9.00 (1%) = 909, leaving cash non-negative — 10 shares would
+        // have cost 1010, more than the 1000 available, so it must stop at 9, not throw.
+        assertThat(response.cash()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
+        ArgumentCaptor<GamePosition> captor = ArgumentCaptor.forClass(GamePosition.class);
+        verify(positionRepository).save(captor.capture());
+        assertThat(captor.getValue().getQuantity()).isEqualByComparingTo("9");
+    }
+
+    @Test
+    void sellMaxSellsTheFullHeldQuantity() {
+        GameSession active = session(GameDifficulty.TRADER, new BigDecimal("1000"), Instant.now().plusSeconds(600));
+        GamePosition position = GamePosition.builder()
+                .positionId(UUID.randomUUID()).sessionId(active.getSessionId()).symbol("AAPL")
+                .quantity(new BigDecimal("25")).avgCost(new BigDecimal("80"))
+                .build();
+        when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of(position));
+        when(positionRepository.findBySessionIdAndSymbol(active.getSessionId(), "AAPL")).thenReturn(Optional.of(position));
+        when(loanRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+        when(marketService.currentPrice(GameDifficulty.TRADER, "AAPL")).thenReturn(Optional.of(new BigDecimal("100.00")));
+
+        gameService.placeMaxTrade(active.getSessionId(), new GameMaxTradeRequest("AAPL", OrderSide.SELL), owner);
+
+        verify(positionRepository).delete(position);
+        verify(positionRepository, never()).save(any(GamePosition.class));
+    }
+
+    @Test
+    void buyMaxRejectedWhenCashCannotCoverEvenOneShare() {
+        GameSession active = session(GameDifficulty.ROGUE, new BigDecimal("1"), Instant.now().plusSeconds(600));
+        when(sessionRepository.findById(active.getSessionId())).thenReturn(Optional.of(active));
+        when(positionRepository.findBySessionId(active.getSessionId())).thenReturn(List.of());
+        when(marketService.currentPrice(GameDifficulty.ROGUE, "AAPL")).thenReturn(Optional.of(new BigDecimal("100.00")));
+
+        assertThatThrownBy(() -> gameService.placeMaxTrade(
+                active.getSessionId(), new GameMaxTradeRequest("AAPL", OrderSide.BUY), owner))
                 .isInstanceOf(GameInsufficientFundsException.class);
     }
 
@@ -930,15 +1169,19 @@ class GameServiceImplTest {
 
     @Test
     void getLeaderboardRanksByNetWorthAndFlagsCallersOwnRow() {
+        // Both sessions are losses (not WON) — a win ends the game the instant net worth reaches
+        // the goal, so a winner's final net worth is just an accident of timing, not a skill signal.
+        // This board is for "how close did you get before losing," which is why the repository call
+        // it drives excludes WON entirely (see getLeaderboardExcludesWonSessionsFromNetWorthRanking).
         GameSession first = GameSession.builder()
                 .sessionId(UUID.randomUUID()).clientId("client-2").difficulty(GameDifficulty.APPRENTICE)
-                .status(GameStatus.WON).finalNetWorth(new BigDecimal("15000"))
+                .status(GameStatus.LOST_TIME).finalNetWorth(new BigDecimal("15000"))
                 .startedAt(Instant.now()).endsAt(Instant.now()).finishedAt(Instant.now()).build();
         GameSession second = GameSession.builder()
                 .sessionId(UUID.randomUUID()).clientId("client-1").difficulty(GameDifficulty.APPRENTICE)
-                .status(GameStatus.WON).finalNetWorth(new BigDecimal("11000"))
+                .status(GameStatus.LOST_TIME).finalNetWorth(new BigDecimal("11000"))
                 .startedAt(Instant.now()).endsAt(Instant.now()).finishedAt(Instant.now()).build();
-        when(sessionRepository.findTop10ByDifficultyAndFinalNetWorthIsNotNullOrderByFinalNetWorthDesc(GameDifficulty.APPRENTICE))
+        when(sessionRepository.findTop10ByDifficultyAndStatusNotAndFinalNetWorthIsNotNullOrderByFinalNetWorthDesc(GameDifficulty.APPRENTICE, GameStatus.WON))
                 .thenReturn(List.of(first, second));
 
         var leaderboard = gameService.getLeaderboard(GameDifficulty.APPRENTICE, GameLeaderboardSortBy.NET_WORTH, "client-1");
@@ -980,7 +1223,7 @@ class GameServiceImplTest {
     void getLeaderboardNeverExposesAClientId() {
         // No CallerPrincipal/ownership check at all — this is a deliberately public endpoint, and
         // the response type itself (GameLeaderboardEntry) has no clientId field to leak.
-        when(sessionRepository.findTop10ByDifficultyAndFinalNetWorthIsNotNullOrderByFinalNetWorthDesc(GameDifficulty.ROGUE))
+        when(sessionRepository.findTop10ByDifficultyAndStatusNotAndFinalNetWorthIsNotNullOrderByFinalNetWorthDesc(GameDifficulty.ROGUE, GameStatus.WON))
                 .thenReturn(List.of());
 
         var leaderboard = gameService.getLeaderboard(GameDifficulty.ROGUE, GameLeaderboardSortBy.NET_WORTH, null);

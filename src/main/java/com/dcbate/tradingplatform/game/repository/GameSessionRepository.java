@@ -14,8 +14,15 @@ public interface GameSessionRepository extends JpaRepository<GameSession, UUID> 
 
     List<GameSession> findByClientIdAndStatusNot(String clientId, GameStatus status);
 
-    /** Only finished sessions have a {@code finalNetWorth} — the null-check excludes anything still IN_PROGRESS. */
-    List<GameSession> findTop10ByDifficultyAndFinalNetWorthIsNotNullOrderByFinalNetWorthDesc(GameDifficulty difficulty);
+    /**
+     * The "best net worth" leaderboard's source query — WON is excluded on purpose. A win ends the
+     * session the instant net worth reaches the goal, so a winner's final net worth is just an
+     * accident of which trade happened to cross the line, not a skill signal; that's what the
+     * "fastest win" leaderboard measures properly instead. This board is for sessions that didn't
+     * win: how close did you get before time ran out or you went bankrupt. The null-check on
+     * {@code finalNetWorth} excludes anything still IN_PROGRESS.
+     */
+    List<GameSession> findTop10ByDifficultyAndStatusNotAndFinalNetWorthIsNotNullOrderByFinalNetWorthDesc(GameDifficulty difficulty, GameStatus excludedStatus);
 
     /**
      * All WON sessions for a difficulty, unsorted — the fastest-win leaderboard needs to rank by

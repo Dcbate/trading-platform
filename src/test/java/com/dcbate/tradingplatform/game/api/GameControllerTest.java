@@ -1,7 +1,9 @@
 package com.dcbate.tradingplatform.game.api;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -21,6 +23,7 @@ import com.dcbate.tradingplatform.game.api.dto.GameTradeRequest;
 import com.dcbate.tradingplatform.game.service.GameMarketService;
 import com.dcbate.tradingplatform.game.service.GameService;
 import com.dcbate.tradingplatform.game.service.GameSessionStartResult;
+import com.dcbate.tradingplatform.security.CallerPrincipal;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -28,6 +31,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
@@ -66,7 +70,7 @@ class GameControllerTest {
     private GameSessionResponse session(UUID sessionId, GameStatus status, BigDecimal cash) {
         return new GameSessionResponse(sessionId, "client-1", GameDifficulty.APPRENTICE, status, cash, BigDecimal.ZERO, cash,
                 GameDifficulty.APPRENTICE.getGoalAmount(), 600, 0, Instant.now(), Instant.now().plusSeconds(600),
-                Instant.now(), 1, false, null, null, null, BigDecimal.ZERO, BigDecimal.ZERO, List.of(), List.of());
+                Instant.now(), 1, false, null, null, null, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of(), List.of());
     }
 
     @Test
@@ -119,17 +123,56 @@ class GameControllerTest {
     }
 
     @Test
+    void anAnonymousGameModeRequestResolvesToTheGuestHeaderNotStaff() throws Exception {
+        // The vulnerability this guards against: with no principal (a real guest, no JWT — exactly
+        // how every Game Mode request arrives in production, since /v1/game/** is permitAll), the
+        // controller must resolve a non-staff CallerPrincipal from X-Game-Client-Id, not fall
+        // through to CallerPrincipal.from's null-is-staff dev-convenience branch, which would make
+        // ownership checks a no-op for the entire feature.
+        UUID sessionId = UUID.randomUUID();
+        when(gameService.getSession(eq(sessionId), any())).thenReturn(session(sessionId, GameStatus.IN_PROGRESS, BigDecimal.TEN));
+
+        mockMvc.perform(get("/v1/game/sessions/{id}", sessionId).header("X-Game-Client-Id", "guest-abc"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<CallerPrincipal> callerCaptor = ArgumentCaptor.forClass(CallerPrincipal.class);
+        verify(gameService).getSession(eq(sessionId), callerCaptor.capture());
+        assertThat(callerCaptor.getValue().staff()).isFalse();
+        assertThat(callerCaptor.getValue().clientId()).isEqualTo("guest-abc");
+    }
+
+    @Test
     void placeTradeReturnsConflictWhenFundsInsufficient() throws Exception {
         UUID sessionId = UUID.randomUUID();
         GameTradeRequest request = new GameTradeRequest("AAPL", OrderSide.BUY, new BigDecimal("100"));
         when(gameService.placeTrade(eq(sessionId), any(), any()))
-                .thenThrow(new GameInsufficientFundsException(sessionId, new BigDecimal("1000"), new BigDecimal("10")));
+                .thenThrow(new GameInsufficientFundsException(new BigDecimal("1000"), new BigDecimal("10")));
 
         mockMvc.perform(post("/v1/game/sessions/{id}/trades", sessionId)
                         .principal(clientAuth("client-1"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    void placeTradeReturnsConflictWhenTwoRequestsRaceOnTheSameSession() throws Exception {
+        // Two overlapping requests against the same GameSession row (a double-click, a scripted
+        // rapid double-submit) would otherwise silently clobber each other's cash update with no
+        // @Version check — see GameSession.version's javadoc. Hibernate throws this instead, and it
+        // must come back as a clean, retryable 409, not the raw Hibernate message or a 500.
+        UUID sessionId = UUID.randomUUID();
+        GameTradeRequest request = new GameTradeRequest("AAPL", OrderSide.BUY, new BigDecimal("10"));
+        when(gameService.placeTrade(eq(sessionId), any(), any()))
+                .thenThrow(new org.springframework.orm.ObjectOptimisticLockingFailureException(
+                        "com.dcbate.tradingplatform.domain.GameSession", sessionId));
+
+        mockMvc.perform(post("/v1/game/sessions/{id}/trades", sessionId)
+                        .principal(clientAuth("client-1"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.messages[0]").value("Something else changed this session at the same moment — try that again."));
     }
 
     @Test

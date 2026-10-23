@@ -14,13 +14,13 @@ import lombok.Getter;
  */
 @Getter
 public enum GameDifficulty {
-    APPRENTICE("Apprentice", new BigDecimal("10000"), new BigDecimal("1000"), 15,
+    APPRENTICE("Apprentice", new BigDecimal("1975"), new BigDecimal("1000"), 15,
             new BigDecimal("5.00"), new BigDecimal("0.000"), 0.01, 0.02, false),
-    TRADER("Trader", new BigDecimal("50000"), new BigDecimal("5000"), 20,
+    TRADER("Trader", new BigDecimal("28500"), new BigDecimal("5000"), 20,
             new BigDecimal("8.00"), new BigDecimal("0.001"), 0.025, 0.04, false),
-    MAVERICK("Maverick", new BigDecimal("100000"), new BigDecimal("2000"), 25,
+    MAVERICK("Maverick", new BigDecimal("21500"), new BigDecimal("2000"), 25,
             new BigDecimal("12.00"), new BigDecimal("0.0025"), 0.04, 0.065, false),
-    ROGUE("Rogue", new BigDecimal("500000"), new BigDecimal("500"), 30,
+    ROGUE("Rogue", new BigDecimal("25000"), new BigDecimal("500"), 30,
             new BigDecimal("20.00"), new BigDecimal("0.01"), 0.075, 0.115, true);
 
     private final String displayName;

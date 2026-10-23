@@ -9,6 +9,7 @@ import com.dcbate.tradingplatform.game.api.dto.GameLeaderboardSortBy;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameMarketEventResponse;
+import com.dcbate.tradingplatform.game.api.dto.GameMaxTradeRequest;
 import com.dcbate.tradingplatform.game.api.dto.GamePriceResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameSavingsRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameSessionResponse;
@@ -36,6 +37,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -49,10 +51,15 @@ import org.springframework.web.bind.annotation.RestController;
  * deliberately, not an oversight. Game Mode is playable without logging in (see
  * {@code SecurityConfig}'s {@code /v1/game/**} permitAll entry and docs/GAME_MODE.md §6/§7): an
  * anonymous caller has no {@code CLIENT}/{@code ADMIN} role to check, so requiring one here would
- * just lock guests out. {@link CallerPrincipal#from} still resolves a real identity when a JWT is
- * present, so a logged-in client's calls are attributed to their real account exactly as
- * elsewhere; {@link GameServiceImpl#startSession} is what actually ties a session to whichever
- * {@code clientId} the caller (real or a client-generated guest id) supplies.
+ * just lock guests out. Every session-scoped endpoint instead resolves its caller through
+ * {@link CallerPrincipal#fromGameCaller} — a real identity from the JWT when one's present (a
+ * logged-in client's calls are attributed to their real account exactly as elsewhere), otherwise
+ * the {@code X-Game-Client-Id} header (the same client-generated id the frontend already sends
+ * with every Game Mode request, matching whatever it used to start the session). See that
+ * method's javadoc for why this isn't just {@link CallerPrincipal#from}: that call's null branch
+ * exists for local-dev convenience and would otherwise make every guest a de facto staff member
+ * with no ownership boundary from any other guest. {@link GameServiceImpl#startSession} is what
+ * actually ties a session to whichever {@code clientId} the caller supplies.
  */
 @Slf4j
 @RestController
@@ -60,6 +67,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 @Tag(name = "Game Mode", description = "Simulated trading game — loans, FX, and stocks against a money goal")
 public class GameController {
+
+    /** See {@link CallerPrincipal#fromGameCaller} — the anonymous-guest identity signal, sent by the frontend on every Game Mode request. */
+    private static final String GUEST_CLIENT_ID_HEADER = "X-Game-Client-Id";
 
     private final GameService gameService;
     private final GameMarketService gameMarketService;
@@ -88,93 +98,122 @@ public class GameController {
 
     @PostMapping("/sessions")
     @Operation(summary = "Start a new Game Mode session, or resume the caller's existing in-progress one")
-    public ResponseEntity<GameSessionResponse> startSession(@Valid @RequestBody GameStartRequest request, Authentication authentication) {
-        GameSessionStartResult result = gameService.startSession(request.clientId(), request.difficulty(), CallerPrincipal.from(authentication));
+    public ResponseEntity<GameSessionResponse> startSession(
+            @Valid @RequestBody GameStartRequest request, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        GameSessionStartResult result = gameService.startSession(request.clientId(), request.difficulty(), CallerPrincipal.fromGameCaller(authentication, guestClientId));
         HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status).body(result.session());
     }
 
     @GetMapping("/sessions/{sessionId}")
     @Operation(summary = "Live valuation of a session — cash, positions, loans, net worth, time remaining")
-    public ResponseEntity<GameSessionResponse> getSession(@PathVariable UUID sessionId, Authentication authentication) {
-        return ResponseEntity.ok(gameService.getSession(sessionId, CallerPrincipal.from(authentication)));
+    public ResponseEntity<GameSessionResponse> getSession(
+            @PathVariable UUID sessionId, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        return ResponseEntity.ok(gameService.getSession(sessionId, CallerPrincipal.fromGameCaller(authentication, guestClientId)));
     }
 
     @PostMapping("/sessions/{sessionId}/loans")
     @Operation(summary = "Take a loan within a session — interest accrues per minute held until repaid or the game ends")
     public ResponseEntity<GameSessionResponse> takeLoan(
-            @PathVariable UUID sessionId, @Valid @RequestBody GameLoanRequest request, Authentication authentication) {
-        GameSessionResponse response = gameService.takeLoan(sessionId, request, CallerPrincipal.from(authentication));
+            @PathVariable UUID sessionId, @Valid @RequestBody GameLoanRequest request, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        GameSessionResponse response = gameService.takeLoan(sessionId, request, CallerPrincipal.fromGameCaller(authentication, guestClientId));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/sessions/{sessionId}/speed-boost")
     @Operation(summary = "Fast-forward the shared market for this session's difficulty tier for 60s — 90s cooldown per session, free otherwise")
-    public ResponseEntity<GameSessionResponse> activateSpeedBoost(@PathVariable UUID sessionId, Authentication authentication) {
-        return ResponseEntity.ok(gameService.activateSpeedBoost(sessionId, CallerPrincipal.from(authentication)));
+    public ResponseEntity<GameSessionResponse> activateSpeedBoost(
+            @PathVariable UUID sessionId, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        return ResponseEntity.ok(gameService.activateSpeedBoost(sessionId, CallerPrincipal.fromGameCaller(authentication, guestClientId)));
     }
 
     @PostMapping("/sessions/{sessionId}/advisor/hire")
     @Operation(summary = "Hire a wealth manager for a one-time fee — they periodically tip a symbol, right roughly 62% of the time")
-    public ResponseEntity<GameSessionResponse> hireAdvisor(@PathVariable UUID sessionId, Authentication authentication) {
-        GameSessionResponse response = gameService.hireAdvisor(sessionId, CallerPrincipal.from(authentication));
+    public ResponseEntity<GameSessionResponse> hireAdvisor(
+            @PathVariable UUID sessionId, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        GameSessionResponse response = gameService.hireAdvisor(sessionId, CallerPrincipal.fromGameCaller(authentication, guestClientId));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/sessions/{sessionId}/insurance")
     @Operation(summary = "Buy insurance on a held position — a one-time premium floors its downside at 85% of average cost")
     public ResponseEntity<GameSessionResponse> purchaseInsurance(
-            @PathVariable UUID sessionId, @Valid @RequestBody GameInsuranceRequest request, Authentication authentication) {
-        GameSessionResponse response = gameService.purchaseInsurance(sessionId, request, CallerPrincipal.from(authentication));
+            @PathVariable UUID sessionId, @Valid @RequestBody GameInsuranceRequest request, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        GameSessionResponse response = gameService.purchaseInsurance(sessionId, request, CallerPrincipal.fromGameCaller(authentication, guestClientId));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/sessions/{sessionId}/loans/{loanId}/repay")
     @Operation(summary = "Repay a game loan — applied to accrued interest first, then outstanding principal")
     public ResponseEntity<GameSessionResponse> repayLoan(
-            @PathVariable UUID sessionId, @PathVariable UUID loanId, @Valid @RequestBody GameLoanRepayRequest request, Authentication authentication) {
-        return ResponseEntity.ok(gameService.repayLoan(sessionId, loanId, request, CallerPrincipal.from(authentication)));
+            @PathVariable UUID sessionId, @PathVariable UUID loanId, @Valid @RequestBody GameLoanRepayRequest request, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        return ResponseEntity.ok(gameService.repayLoan(sessionId, loanId, request, CallerPrincipal.fromGameCaller(authentication, guestClientId)));
     }
 
     @PostMapping("/sessions/{sessionId}/trades")
     @Operation(summary = "Buy or sell at the current simulated market price — fills instantly, no order book")
     public ResponseEntity<GameSessionResponse> placeTrade(
-            @PathVariable UUID sessionId, @Valid @RequestBody GameTradeRequest request, Authentication authentication) {
-        GameSessionResponse response = gameService.placeTrade(sessionId, request, CallerPrincipal.from(authentication));
+            @PathVariable UUID sessionId, @Valid @RequestBody GameTradeRequest request, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        GameSessionResponse response = gameService.placeTrade(sessionId, request, CallerPrincipal.fromGameCaller(authentication, guestClientId));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/sessions/{sessionId}/trades/max")
+    @Operation(summary = "Buy or sell the max the server's live price and cash/holdings actually allow — never fails with insufficient funds")
+    public ResponseEntity<GameSessionResponse> placeMaxTrade(
+            @PathVariable UUID sessionId, @Valid @RequestBody GameMaxTradeRequest request, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        GameSessionResponse response = gameService.placeMaxTrade(sessionId, request, CallerPrincipal.fromGameCaller(authentication, guestClientId));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/sessions/{sessionId}/savings/deposit")
     @Operation(summary = "Move cash into savings — a slow, flat-rate, every-difficulty alternative to trading for idle cash")
     public ResponseEntity<GameSessionResponse> depositToSavings(
-            @PathVariable UUID sessionId, @Valid @RequestBody GameSavingsRequest request, Authentication authentication) {
-        return ResponseEntity.ok(gameService.depositToSavings(sessionId, request, CallerPrincipal.from(authentication)));
+            @PathVariable UUID sessionId, @Valid @RequestBody GameSavingsRequest request, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        return ResponseEntity.ok(gameService.depositToSavings(sessionId, request, CallerPrincipal.fromGameCaller(authentication, guestClientId)));
     }
 
     @PostMapping("/sessions/{sessionId}/savings/withdraw")
     @Operation(summary = "Move savings back to cash, including whatever interest has accrued")
     public ResponseEntity<GameSessionResponse> withdrawFromSavings(
-            @PathVariable UUID sessionId, @Valid @RequestBody GameSavingsRequest request, Authentication authentication) {
-        return ResponseEntity.ok(gameService.withdrawFromSavings(sessionId, request, CallerPrincipal.from(authentication)));
+            @PathVariable UUID sessionId, @Valid @RequestBody GameSavingsRequest request, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        return ResponseEntity.ok(gameService.withdrawFromSavings(sessionId, request, CallerPrincipal.fromGameCaller(authentication, guestClientId)));
     }
 
     @GetMapping("/sessions/{sessionId}/trades")
     @Operation(summary = "A session's trade history, most recent first")
-    public ResponseEntity<List<GameTradeResponse>> listTrades(@PathVariable UUID sessionId, Authentication authentication) {
-        return ResponseEntity.ok(gameService.listTrades(sessionId, CallerPrincipal.from(authentication)));
+    public ResponseEntity<List<GameTradeResponse>> listTrades(
+            @PathVariable UUID sessionId, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        return ResponseEntity.ok(gameService.listTrades(sessionId, CallerPrincipal.fromGameCaller(authentication, guestClientId)));
     }
 
     @GetMapping("/sessions/{sessionId}/debrief")
     @Operation(summary = "AI-written debrief for a finished session — why you won or lost, which trades/loans helped or hurt, "
             + "plus a per-symbol P&L breakdown. 409 if the session hasn't ended yet.")
-    public ResponseEntity<GameDebriefResponse> getDebrief(@PathVariable UUID sessionId, Authentication authentication) {
-        return ResponseEntity.ok(gameService.getDebrief(sessionId, CallerPrincipal.from(authentication)));
+    public ResponseEntity<GameDebriefResponse> getDebrief(
+            @PathVariable UUID sessionId, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        return ResponseEntity.ok(gameService.getDebrief(sessionId, CallerPrincipal.fromGameCaller(authentication, guestClientId)));
     }
 
     @GetMapping("/stats")
     @Operation(summary = "A client's own Game Mode history — win rate, best score per difficulty, best trade. Personal only, no other players.")
-    public ResponseEntity<GameStatsResponse> getStats(@RequestParam String clientId, Authentication authentication) {
-        return ResponseEntity.ok(gameService.getStats(clientId, CallerPrincipal.from(authentication)));
+    public ResponseEntity<GameStatsResponse> getStats(
+            @RequestParam String clientId, Authentication authentication,
+            @RequestHeader(value = GUEST_CLIENT_ID_HEADER, required = false) String guestClientId) {
+        return ResponseEntity.ok(gameService.getStats(clientId, CallerPrincipal.fromGameCaller(authentication, guestClientId)));
     }
 
     @GetMapping("/leaderboard")

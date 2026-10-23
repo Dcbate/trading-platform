@@ -19,10 +19,22 @@ banking screen. Keeping them apart means there's zero chance the two ever get co
 
 | Difficulty | Goal | Start | Time | Loan rate | Fee | FX volatility | Stock volatility | Chaos |
 |---|---|---|---|---|---|---|---|---|
-| Apprentice | £10,000 | £1,000 | 15 min | 5.00% | 0% | ±1% | ±2% | no |
-| Trader | £50,000 | £5,000 | 20 min | 8.00% | 0.1% | ±2.5% | ±4% | no |
-| Maverick | £100,000 | £2,000 | 25 min | 12.00% | 0.25% | ±4% | ±6.5% | no |
-| Rogue | £500,000 | £500 | 30 min | 20.00% | 1% | ±7.5% | ±11.5% | yes |
+| Apprentice | £1,975 | £1,000 | 15 min | 5.00% | 0% | ±1% | ±2% | no |
+| Trader | £28,500 | £5,000 | 20 min | 8.00% | 0.1% | ±2.5% | ±4% | no |
+| Maverick | £21,500 | £2,000 | 25 min | 12.00% | 0.25% | ±4% | ±6.5% | no |
+| Rogue | £25,000 | £500 | 30 min | 20.00% | 1% | ±7.5% | ±11.5% | yes |
+
+Goal amounts were tuned empirically (2026-08-27): a 40-trial bot simulation of a moderately
+active momentum-trading strategy against the original goals (£10,000/£50,000/£100,000/£500,000)
+produced a 0% win rate across all four tiers — every trial ran out the clock 5-20x short of goal.
+The bot's own achieved net worth per tier became the calibration baseline for the goals above
+(set within each tier's observed trial range, giving the bot itself roughly a 40-70% win rate —
+real players vary more than one fixed-strategy bot, so the population win rate should land higher
+than that). Note the goals are deliberately *not* monotonically increasing with nominal tier
+difficulty (Trader's £28,500 exceeds Maverick's £21,500): Maverick's higher fees/volatility didn't
+translate into a proportionally higher achievable ceiling for this bot, so forcing a bigger number
+onto Maverick would have just reintroduced the same mismatch. The escalating volatility/chaos
+badges carry the "harder tier" signal in the UI, not the goal number.
 
 These live as embedded fields on the `GameDifficulty` enum (`domain/GameDifficulty.java`), not in
 `application.yml` — they're fixed game rules, not deployment config.
@@ -246,8 +258,21 @@ floor a held position's downside at 85% of its average cost
 (`INSURANCE_FLOOR_PERCENT_OF_AVG_COST`). The player still eats the first 15% of a down move
 themselves, the same way a real policy's excess works; insurance protects against a catastrophic
 drop beyond that, not every wobble. There's no expiry and no duration field — a policy lasts until
-the position is fully sold or the session ends, and buying more of an already-insured symbol
-doesn't recompute the floor (a deliberate simplification, not an oversight).
+the position is fully sold or the session ends.
+
+Two guards close off ways this would otherwise be free money rather than real risk protection,
+both found by adversarial testing after the feature first shipped:
+
+- **Buying insurance on a position that's already crashed below the floor is rejected**
+  (`GameInsuranceUnavailableException`) — without this, insuring after the fact would instantly
+  mark the position up to the floor for a 3% premium, since real insurance can't cover damage
+  that's already happened.
+- **`executeBuy` recomputes the floor on every purchase of an already-insured symbol**, the same
+  way it recomputes `avgCost` — `floor = avgCost * 85%`, always, not just at the moment insurance
+  was first bought. Without this, insuring a small position cheaply and then averaging way down
+  with a much larger low-price top-up would leave the floor pinned to the old, higher avgCost —
+  `effectivePrice()` would then mark the *entire*, now much larger, position up to a floor far
+  above what was actually paid for most of it.
 
 The floor is enforced by one helper, `GameServiceImpl.effectivePrice(position, marketPrice)` —
 `marketPrice` unless the position is insured and the real price has fallen below the floor, in
@@ -258,12 +283,19 @@ it: `computeNetWorth`'s positions sum, `toResponse`'s per-position `marketValue`
 real price is below the floor when you sell, the sale settles at the floor instead, and the
 insurer effectively covers the gap.
 
-## 5d. Wealth manager
+## 5d. Accountant
+
+Player-facing label is "Accountant," not "Wealth Manager" — the latter over-promised (private
+banking, portfolio strategy) for what this feature actually does: a paid, imperfect tip service.
+"Accountant" is the ordinary retail-banking term for a person who helps with your numbers, which
+is a closer match to a once-per-90-seconds "BUY AAPL" call. The backend's internal naming
+(`advisor`, `Advisor*`) is unchanged — this is a display-layer rename only, see
+`frontend/src/pages/GamePlayPage.tsx`.
 
 `POST /v1/game/sessions/{id}/advisor/hire` pays a one-time fee (2% of the difficulty's starting
 cash, `GameServiceImpl.ADVISOR_HIRE_FEE_PERCENT_OF_STARTING_CASH` — scaled per tier so it's a
 proportionate bet everywhere, not negligible at Rogue and crushing at Apprentice) to hire an
-advisor for the rest of the session. Every 90 seconds
+accountant for the rest of the session. Every 90 seconds
 (`ADVISOR_TIP_INTERVAL_SECONDS`) they name a symbol and a side — "BUY AAPL," say — right roughly
 62% of the time (`ADVISOR_TIP_ACCURACY`).
 
@@ -274,6 +306,15 @@ session, not a cheat code. `GameServiceImpl.settleAdvisorTip` runs from the same
 point every entry point already passes through, and — unlike the "live, recompute on every poll"
 pattern savings/loan interest use — actually writes the tip down once it's decided, since a tip has
 to be a stable, named call to act on rather than a value that reshuffles itself on every refresh.
+
+SELL tips only ever name a symbol the session actually holds (found live: "SELL NFLX" with no NFLX
+position — not actionable advice, just confusing). The symbol/regime/accuracy roll is retried
+against a fresh random symbol, up to 5 times, until it lands on either BUY (always sensible
+regardless of holdings) or SELL-on-something-held; a handful of attempts is enough that the final
+fallback (force BUY on whatever was last tried) essentially never triggers. This is a retry, not a
+same-symbol flip, on purpose — flipping a SELL straight to BUY on the spot would turn some
+genuinely accurate "this is heading down" calls into bad buy advice, quietly skewing the accuracy
+rate the tip is supposed to hold to.
 `GameSessionResponse` carries `advisorHired`, `advisorTipSymbol`, `advisorTipSide`, and
 `advisorNextTipAt` so the frontend can show the current tip and a countdown to the next one without
 a separate endpoint.
@@ -307,6 +348,34 @@ invisible in a quick manual test (which happened to leave a long gap between che
 caught by re-verifying against realistic continuous polling. Fixed by only resetting the clock in
 the null-initialization branch; a not-yet-due check now returns without touching it.
 
+## 5f. Overdraft interest
+
+Tax is the one deduction that isn't gated behind an insufficient-funds check — a loan, a trade, an
+insurance premium, an accountant's fee can all be declined for insufficient cash, but you can't
+decline a tax bill — so a big tax hit against a cash-poor, position-heavy session is the realistic
+way `cash` goes negative in the first place. `GameServiceImpl.settleOverdraftInterest` charges
+interest on that negative balance the same way a real overdraft does: a flat 35% APR
+(`OVERDRAFT_RATE_ANNUAL_PERCENT`, matching real UK high-street overdraft pricing — flat across
+every difficulty, like the tax rate, since running a negative balance is a penalty state rather
+than a planned bet the way a loan is).
+
+Unlike tax's fixed-interval settlement, overdraft interest settles on every single `evaluate()`
+call — "is cash currently negative" is a continuously-true-or-false condition, not a discrete
+banked amount that only changes at intervals. It runs after `settleDividends` and `settleTax` in
+`evaluate()`'s sequence on purpose: dividends get a chance to pull cash back to non-negative before
+any interest is charged on what's left. The accrual clock (`GameSession.overdraftLastAccrualAt`)
+starts the moment cash actually goes negative, not retroactively (mirroring `settleTax`'s
+null-clock branch), and clears the instant cash recovers — so a session that dips negative,
+recovers, and dips again later starts a fresh window rather than resuming a stale one. There's no
+cap and no forced liquidation: left unpaid, the interest compounds and drags net worth toward the
+existing bankruptcy check, the same natural endpoint an unpayable real overdraft eventually forces.
+
+`totalOverdraftInterestPaid` is exposed on `GameSessionResponse` for transparency, following the
+same "silent recurring deduction reads as a bug unless it's explained" reasoning as tax and
+dividends: the frontend shows a first-time explainer modal, then a lightweight toast on every
+deduction after that, plus an inline "— overdrawn, accruing interest" flag on the cash figure
+itself the moment it goes negative.
+
 ## 6. Personal stats, and an anonymous leaderboard
 
 `GET /v1/game/stats?clientId=` returns only the calling client's own history: total games, win
@@ -316,8 +385,11 @@ not public.
 
 `GET /v1/game/leaderboard?difficulty=&sortBy=&clientId=` is different: it's the top 10 sessions for
 a difficulty, and — unlike every other read in this app — genuinely public, no ownership check at
-all. `sortBy` picks how it's ranked: `NET_WORTH` (the default) includes every finished session, won
-or lost, ranked by `finalNetWorth` descending; `FASTEST_WIN` only ever includes `WON` sessions,
+all. `sortBy` picks how it's ranked: `NET_WORTH` (the default) deliberately *excludes* `WON`
+sessions — a win ends the game the instant net worth reaches the goal, so a winner's final net
+worth is just an accident of which trade happened to cross the line, not a skill signal. This board
+is for sessions that didn't win: how close did you get before time ran out or you went bankrupt,
+ranked by `finalNetWorth` descending. `FASTEST_WIN` is the board for winners, covering only `WON` sessions,
 ranked by `finishedAt − startedAt` ascending — "fastest loss" isn't a stat worth ranking by, so
 losses simply don't appear on that board. Both boards return every entry's `durationSeconds`
 regardless of which one is active, so a net-worth board still shows how long a run took and a

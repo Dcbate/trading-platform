@@ -201,3 +201,18 @@ export function usePlaceGameTrade(sessionId: string) {
     },
   })
 }
+
+// "Buy Max" / "Sell Max" — no quantity sent. The server resolves the actual max affordable
+// (accounting for the fee) or max held against its own live price, so this can never fail with
+// insufficient funds the way a client-computed cash/price estimate can.
+export function usePlaceGameMaxTrade(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ symbol, side }: { symbol: string; side: OrderSide }) =>
+      apiClient.post<GameSessionResponse>(`/v1/game/sessions/${sessionId}/trades/max`, { symbol, side }).then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['game', 'session', sessionId], data)
+      queryClient.invalidateQueries({ queryKey: ['game', 'trades', sessionId] })
+    },
+  })
+}

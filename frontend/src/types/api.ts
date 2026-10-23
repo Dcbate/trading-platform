@@ -214,6 +214,7 @@ export interface GameSessionResponse {
   advisorNextTipAt: string | null
   totalDividendsPaid: number
   totalTaxPaid: number
+  totalOverdraftInterestPaid: number
   positions: GamePositionResponse[]
   loans: GameLoanResponse[]
 }

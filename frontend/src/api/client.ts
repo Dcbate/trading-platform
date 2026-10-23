@@ -1,4 +1,5 @@
 import axios, { AxiosError } from 'axios'
+import { getOrCreateGuestId } from '../lib/guestId'
 import { useAuthStore } from '../store/authStore'
 import type { ApiError } from '../types/api'
 
@@ -9,6 +10,21 @@ import type { ApiError } from '../types/api'
 // trick, same reason: SameSite=Strict cookies require it.
 export const apiClient = axios.create({
   withCredentials: true,
+})
+
+// Game Mode is playable without logging in, so a guest request carries no JWT/cookie at all —
+// this header is the only identity signal the backend has for them. See
+// CallerPrincipal.fromGameCaller's javadoc for why that matters: without it, every anonymous
+// caller was silently treated as staff (no ownership check at all), so any guest could act on any
+// other guest's session just by knowing its sessionId. A logged-in user's real JWT still wins
+// server-side regardless of what this header says — it's only ever consulted for a genuinely
+// anonymous request — so sending it unconditionally here is harmless for them too.
+apiClient.interceptors.request.use((config) => {
+  if (config.url?.startsWith('/v1/game/')) {
+    const clientId = useAuthStore.getState().user?.clientId ?? getOrCreateGuestId()
+    config.headers.set('X-Game-Client-Id', clientId)
+  }
+  return config
 })
 
 let refreshPromise: Promise<void> | null = null
@@ -62,6 +78,13 @@ const STATUS_FALLBACKS: Record<number, string> = {
   403: "You don't have permission to do that.",
   404: "That couldn't be found.",
   409: "That couldn't be completed — please check the details and try again.",
+}
+
+// For callers that want to react differently to a specific status (e.g. showing a dedicated
+// "declined" modal only for a genuine 409 conflict, not for a network failure or a 500) rather
+// than always falling back to a generic toast.
+export function apiErrorStatus(error: unknown): number | undefined {
+  return axios.isAxiosError(error) ? error.response?.status : undefined
 }
 
 export function apiErrorMessage(error: unknown): string {

@@ -64,7 +64,13 @@ public class GameMarketServiceImpl implements GameMarketService {
     }
 
     private static final Set<String> FX_SYMBOLS = FX_SEED_PRICES.keySet();
-    private static final double CHAOS_SPIKE_PROBABILITY = 0.04;
+    // Rolled independently per symbol per tick, across all 13 symbols — at the original 0.04 this
+    // worked out to a ~41% chance of *some* symbol spiking every 5s tick, i.e. a new blocking "act
+    // now" prompt roughly every 12 real seconds for the whole session (reported live as popups
+    // firing "way too often"). 0.007 targets roughly one spike a minute instead — still frequent
+    // enough that chaos mode feels distinctly more volatile than the other tiers, without turning
+    // the session into a wall of interruptions.
+    private static final double CHAOS_SPIKE_PROBABILITY = 0.007;
     private static final double CHAOS_SPIKE_MOVE_FRACTION = 0.20;
     private static final int MIN_REGIME_TICKS = 10;
     private static final int MAX_REGIME_TICKS = 40;

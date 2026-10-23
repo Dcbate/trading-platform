@@ -14,6 +14,7 @@ import com.dcbate.tradingplatform.exception.GameAdvisorAlreadyHiredException;
 import com.dcbate.tradingplatform.exception.GameInsufficientFundsException;
 import com.dcbate.tradingplatform.exception.GameInsufficientPositionException;
 import com.dcbate.tradingplatform.exception.GameInsufficientSavingsException;
+import com.dcbate.tradingplatform.exception.GameInsuranceUnavailableException;
 import com.dcbate.tradingplatform.exception.GameLoanDeclinedException;
 import com.dcbate.tradingplatform.exception.GameLoanNotFoundException;
 import com.dcbate.tradingplatform.exception.GamePositionAlreadyInsuredException;
@@ -30,6 +31,7 @@ import com.dcbate.tradingplatform.game.api.dto.GameLeaderboardSortBy;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRepayRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameLoanResponse;
+import com.dcbate.tradingplatform.game.api.dto.GameMaxTradeRequest;
 import com.dcbate.tradingplatform.game.api.dto.GamePositionResponse;
 import com.dcbate.tradingplatform.game.api.dto.GameSavingsRequest;
 import com.dcbate.tradingplatform.game.api.dto.GameSessionResponse;
@@ -116,6 +118,15 @@ public class GameServiceImpl implements GameService {
     // opposite bug (an earlier version accrued a 20%/£5,000 loan up to £30,000 in 30 minutes).
     private static final double LOAN_INTEREST_DAYS_PER_MINUTE = 6.0;
 
+    // Capital gains tax is the one deduction that isn't gated behind an insufficient-funds check —
+    // you can't decline to pay a tax bill the way you can decline a loan or a purchase — so a big
+    // tax hit against a cash-poor, position-heavy session is the realistic way cash goes negative
+    // in the first place. Flat across every difficulty (like the tax rate itself), not scaled per
+    // tier like the borrow-on-purpose loan rate, since running a negative balance is a penalty
+    // state, not a planned bet — 35% APR matches real UK high-street overdraft pricing.
+    private static final BigDecimal OVERDRAFT_RATE_ANNUAL_PERCENT = new BigDecimal("35.00");
+    private static final double OVERDRAFT_INTEREST_DAYS_PER_MINUTE = 6.0;
+
     // A loan is a real credit decision, not a blank cheque: total outstanding principal (existing
     // loans plus the one being requested) can't exceed this multiple of the session's current net
     // worth. Mirrors a real lender sizing a credit line off net worth rather than handing out an
@@ -200,6 +211,7 @@ public class GameServiceImpl implements GameService {
                 .totalRealizedPnlTaxed(BigDecimal.ZERO)
                 .totalTaxPaid(BigDecimal.ZERO)
                 .taxLastSettledAt(now)
+                .totalOverdraftInterestPaid(BigDecimal.ZERO)
                 .build();
         sessionRepository.save(session);
         log.info("Game session started: sessionId={}, clientId={}, difficulty={}", session.getSessionId(), clientId, difficulty);
@@ -225,7 +237,7 @@ public class GameServiceImpl implements GameService {
 
         Instant now = Instant.now();
         if (session.getSpeedBoostAvailableAt() != null && session.getSpeedBoostAvailableAt().isAfter(now)) {
-            throw new GameSpeedBoostOnCooldownException(sessionId, session.getSpeedBoostAvailableAt());
+            throw new GameSpeedBoostOnCooldownException(session.getSpeedBoostAvailableAt());
         }
 
         marketService.activateSpeedBoost(session.getDifficulty());
@@ -245,14 +257,14 @@ public class GameServiceImpl implements GameService {
         requireActive(session);
 
         if (session.isAdvisorHired()) {
-            throw new GameAdvisorAlreadyHiredException(sessionId);
+            throw new GameAdvisorAlreadyHiredException();
         }
 
         BigDecimal fee = session.getDifficulty().getStartingCash()
                 .multiply(ADVISOR_HIRE_FEE_PERCENT_OF_STARTING_CASH)
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         if (session.getCash().compareTo(fee) < 0) {
-            throw new GameInsufficientFundsException(sessionId, fee, session.getCash());
+            throw new GameInsufficientFundsException(fee, session.getCash());
         }
 
         session.setCash(session.getCash().subtract(fee));
@@ -276,20 +288,27 @@ public class GameServiceImpl implements GameService {
         GamePosition position = positionRepository.findBySessionIdAndSymbol(sessionId, symbol)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "No open position in " + symbol + " to insure"));
         if (position.isInsured()) {
-            throw new GamePositionAlreadyInsuredException(sessionId, symbol);
+            throw new GamePositionAlreadyInsuredException(symbol);
         }
 
         BigDecimal currentPrice = marketService.currentPrice(session.getDifficulty(), symbol).orElse(position.getAvgCost());
+        BigDecimal wouldBeFloor = position.getAvgCost().multiply(INSURANCE_FLOOR_PERCENT_OF_AVG_COST);
+        if (currentPrice.compareTo(wouldBeFloor) < 0) {
+            // Without this check, insuring a position that's already crashed below the floor would
+            // instantly mark it back up to the floor via effectivePrice() — free money for a 3%
+            // premium, not risk protection. Real insurance doesn't cover damage that already happened.
+            throw new GameInsuranceUnavailableException(symbol, currentPrice, wouldBeFloor);
+        }
         BigDecimal positionValue = currentPrice.multiply(position.getQuantity());
         BigDecimal premium = positionValue.multiply(INSURANCE_PREMIUM_PERCENT_OF_POSITION_VALUE)
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         if (session.getCash().compareTo(premium) < 0) {
-            throw new GameInsufficientFundsException(sessionId, premium, session.getCash());
+            throw new GameInsufficientFundsException(premium, session.getCash());
         }
 
         session.setCash(session.getCash().subtract(premium));
         position.setInsured(true);
-        position.setInsuranceFloorPrice(position.getAvgCost().multiply(INSURANCE_FLOOR_PERCENT_OF_AVG_COST));
+        position.setInsuranceFloorPrice(wouldBeFloor);
         sessionRepository.save(session);
         positionRepository.save(position);
 
@@ -313,7 +332,7 @@ public class GameServiceImpl implements GameService {
         BigDecimal netWorth = computeNetWorth(session);
         BigDecimal maxAllowed = netWorth.multiply(MAX_LOAN_TO_NET_WORTH_MULTIPLIER);
         if (requestedTotalExposure.compareTo(maxAllowed) > 0) {
-            throw new GameLoanDeclinedException(sessionId, requestedTotalExposure, netWorth, maxAllowed);
+            throw new GameLoanDeclinedException(requestedTotalExposure, netWorth, maxAllowed);
         }
 
         session.setCash(session.getCash().add(request.amount()));
@@ -356,7 +375,7 @@ public class GameServiceImpl implements GameService {
         BigDecimal payment = request.amount().min(totalOwedNow);
 
         if (session.getCash().compareTo(payment) < 0) {
-            throw new GameInsufficientFundsException(sessionId, payment, session.getCash());
+            throw new GameInsufficientFundsException(payment, session.getCash());
         }
         session.setCash(session.getCash().subtract(payment));
 
@@ -386,21 +405,66 @@ public class GameServiceImpl implements GameService {
         requireActive(session);
 
         String symbol = request.symbol();
-        BigDecimal price = marketService.currentPrice(session.getDifficulty(), symbol)
+        BigDecimal price = currentSymbolPrice(session, symbol);
+        return executeTradeAndRespond(session, symbol, request.side(), request.quantity(), price);
+    }
+
+    @Override
+    @Transactional
+    public GameSessionResponse placeMaxTrade(UUID sessionId, GameMaxTradeRequest request, CallerPrincipal caller) {
+        GameSession session = requireSession(sessionId);
+        caller.requireOwner(session.getClientId());
+        evaluate(session);
+        requireActive(session);
+
+        String symbol = request.symbol();
+        BigDecimal price = currentSymbolPrice(session, symbol);
+        BigDecimal quantity = request.side() == OrderSide.BUY
+                ? maxAffordableQuantity(session, symbol, price)
+                : positionRepository.findBySessionIdAndSymbol(sessionId, symbol).map(GamePosition::getQuantity).orElse(BigDecimal.ZERO);
+
+        if (quantity.signum() <= 0) {
+            throw request.side() == OrderSide.BUY
+                    ? new GameInsufficientFundsException(price, session.getCash())
+                    : new GameInsufficientPositionException(symbol, BigDecimal.ONE, BigDecimal.ZERO);
+        }
+        return executeTradeAndRespond(session, symbol, request.side(), quantity, price);
+    }
+
+    private BigDecimal currentSymbolPrice(GameSession session, String symbol) {
+        return marketService.currentPrice(session.getDifficulty(), symbol)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown Game Mode symbol: " + symbol));
-        BigDecimal quantity = request.quantity();
+    }
+
+    /**
+     * The most whole shares {@code cash} can cover including the fee that'll be added on top of
+     * the notional — rounded down, so this can never overshoot into an "insufficient funds" 409 the
+     * way a plain {@code cash / price} client-side estimate does (that estimate leaves nothing for
+     * the fee, which on Rogue's 1% rate is enough to reliably push the total just over cash).
+     */
+    private BigDecimal maxAffordableQuantity(GameSession session, String symbol, BigDecimal price) {
+        boolean reactionTrade = isReactionTrade(session.getDifficulty(), symbol);
+        BigDecimal feeRate = reactionTrade ? BigDecimal.ZERO : session.getDifficulty().getFeeRate();
+        BigDecimal costPerShare = price.multiply(BigDecimal.ONE.add(feeRate));
+        if (costPerShare.signum() <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return session.getCash().divide(costPerShare, 0, RoundingMode.DOWN);
+    }
+
+    private GameSessionResponse executeTradeAndRespond(GameSession session, String symbol, OrderSide side, BigDecimal quantity, BigDecimal price) {
         BigDecimal notional = price.multiply(quantity);
         boolean reactionTrade = isReactionTrade(session.getDifficulty(), symbol);
         BigDecimal fee = reactionTrade ? BigDecimal.ZERO : notional.multiply(session.getDifficulty().getFeeRate()).setScale(2, RoundingMode.HALF_UP);
 
-        GameTrade trade = request.side() == OrderSide.BUY
+        GameTrade trade = side == OrderSide.BUY
                 ? executeBuy(session, symbol, quantity, price, notional, fee)
                 : executeSell(session, symbol, quantity, price, notional, fee);
 
         sessionRepository.save(session);
         tradeRepository.save(trade);
         log.info("Game trade: sessionId={}, symbol={}, side={}, quantity={}, price={}, fee={}, realizedPnl={}, reactionTrade={}",
-                sessionId, symbol, request.side(), quantity, price, fee, trade.getRealizedPnl(), reactionTrade);
+                session.getSessionId(), symbol, side, quantity, price, fee, trade.getRealizedPnl(), reactionTrade);
 
         evaluate(session);
         return toResponse(session);
@@ -454,7 +518,7 @@ public class GameServiceImpl implements GameService {
     private GameTrade executeBuy(GameSession session, String symbol, BigDecimal quantity, BigDecimal price, BigDecimal notional, BigDecimal fee) {
         BigDecimal totalCost = notional.add(fee);
         if (session.getCash().compareTo(totalCost) < 0) {
-            throw new GameInsufficientFundsException(session.getSessionId(), totalCost, session.getCash());
+            throw new GameInsufficientFundsException(totalCost, session.getCash());
         }
         session.setCash(session.getCash().subtract(totalCost));
 
@@ -471,6 +535,15 @@ public class GameServiceImpl implements GameService {
         BigDecimal newQuantity = position.getQuantity().add(quantity);
         position.setAvgCost(existingNotional.add(notional).divide(newQuantity, 8, RoundingMode.HALF_UP));
         position.setQuantity(newQuantity);
+        if (position.isInsured()) {
+            // Without this, topping up an insured position at a much lower price would leave the
+            // floor pinned to the old (higher) avgCost while the blended cost basis drops toward
+            // the new price — effectivePrice() would then mark the *entire*, now much larger,
+            // position up to a floor far above what was actually paid for most of it. Recomputing
+            // the floor the same way avgCost itself is recomputed keeps the floor's 85%-of-cost
+            // invariant true after every buy, not just the first one.
+            position.setInsuranceFloorPrice(position.getAvgCost().multiply(INSURANCE_FLOOR_PERCENT_OF_AVG_COST));
+        }
         positionRepository.save(position);
 
         return GameTrade.builder()
@@ -481,9 +554,9 @@ public class GameServiceImpl implements GameService {
 
     private GameTrade executeSell(GameSession session, String symbol, BigDecimal quantity, BigDecimal price, BigDecimal notional, BigDecimal fee) {
         GamePosition position = positionRepository.findBySessionIdAndSymbol(session.getSessionId(), symbol)
-                .orElseThrow(() -> new GameInsufficientPositionException(session.getSessionId(), symbol, quantity, BigDecimal.ZERO));
+                .orElseThrow(() -> new GameInsufficientPositionException(symbol, quantity, BigDecimal.ZERO));
         if (position.getQuantity().compareTo(quantity) < 0) {
-            throw new GameInsufficientPositionException(session.getSessionId(), symbol, quantity, position.getQuantity());
+            throw new GameInsufficientPositionException(symbol, quantity, position.getQuantity());
         }
 
         // Insurance's actual payout happens here: if the real price has fallen below the insured
@@ -517,7 +590,7 @@ public class GameServiceImpl implements GameService {
         requireActive(session);
 
         if (session.getCash().compareTo(request.amount()) < 0) {
-            throw new GameInsufficientFundsException(sessionId, request.amount(), session.getCash());
+            throw new GameInsufficientFundsException(request.amount(), session.getCash());
         }
         settleSavingsAccrual(session);
         session.setCash(session.getCash().subtract(request.amount()));
@@ -538,7 +611,7 @@ public class GameServiceImpl implements GameService {
 
         settleSavingsAccrual(session);
         if (session.getSavingsBalance().compareTo(request.amount()) < 0) {
-            throw new GameInsufficientSavingsException(sessionId, request.amount(), session.getSavingsBalance());
+            throw new GameInsufficientSavingsException(request.amount(), session.getSavingsBalance());
         }
         session.setSavingsBalance(session.getSavingsBalance().subtract(request.amount()));
         session.setCash(session.getCash().add(request.amount()));
@@ -595,7 +668,12 @@ public class GameServiceImpl implements GameService {
                         .sorted(Comparator.comparing(s -> Duration.between(s.getStartedAt(), s.getFinishedAt())))
                         .limit(10)
                         .toList()
-                : sessionRepository.findTop10ByDifficultyAndFinalNetWorthIsNotNullOrderByFinalNetWorthDesc(difficulty);
+                // WON sessions are deliberately excluded here: the game ends the instant net worth
+                // reaches the goal, so a winner's final net worth is just whichever trade happened
+                // to cross the line, not a skill signal — that's what "fastest win" measures
+                // properly. "Best net worth" is for sessions that didn't win: how close did you get
+                // before time ran out or you went bankrupt.
+                : sessionRepository.findTop10ByDifficultyAndStatusNotAndFinalNetWorthIsNotNullOrderByFinalNetWorthDesc(difficulty, GameStatus.WON);
 
         List<GameLeaderboardEntry> entries = new ArrayList<>();
         for (int i = 0; i < top.size(); i++) {
@@ -787,22 +865,35 @@ public class GameServiceImpl implements GameService {
         }
         settleDividends(session);
         settleTax(session);
+        settleOverdraftInterest(session);
         settleAdvisorTip(session);
         BigDecimal netWorth = computeNetWorth(session);
         Instant now = Instant.now();
+        boolean timeExpired = !now.isBefore(session.getEndsAt());
 
+        // Time expiry is checked before WIN on purpose. evaluate() only runs when something
+        // touches the session (a trade, a poll, even just loading the page) — there's no
+        // background job resolving sessions the instant their clock runs out. Checking WIN first
+        // would let an abandoned, losing session sit untouched past its deadline and then
+        // retroactively "win" whenever it's next looked at, based on whatever net worth it happens
+        // to have then (found live: a 15-minute Apprentice session left unevaluated for 22 minutes
+        // past its deadline came back WON at 50x its goal). Once the clock is out, the only
+        // outcomes left are a loss — bankruptcy if net worth is negative, a timeout otherwise.
         GameStatus newStatus = null;
-        if (netWorth.compareTo(session.getDifficulty().getGoalAmount()) >= 0) {
-            newStatus = GameStatus.WON;
-        } else if (netWorth.signum() < 0) {
+        if (netWorth.signum() < 0) {
             newStatus = GameStatus.LOST_BANKRUPT;
-        } else if (!now.isBefore(session.getEndsAt())) {
+        } else if (timeExpired) {
             newStatus = GameStatus.LOST_TIME;
+        } else if (netWorth.compareTo(session.getDifficulty().getGoalAmount()) >= 0) {
+            newStatus = GameStatus.WON;
         }
 
         if (newStatus != null) {
             session.setStatus(newStatus);
-            session.setFinishedAt(now);
+            // A timeout's finish time is the deadline itself, not whenever this evaluate() happened
+            // to run — otherwise an abandoned session checked minutes or hours late would show a
+            // bogus, inflated "duration" instead of the real 15/20/25/30-minute session length.
+            session.setFinishedAt(newStatus == GameStatus.LOST_TIME ? session.getEndsAt() : now);
             session.setFinalNetWorth(netWorth);
             sessionRepository.save(session);
             log.info("Game session ended: sessionId={}, status={}, finalNetWorth={}", session.getSessionId(), newStatus, netWorth);
@@ -939,6 +1030,47 @@ public class GameServiceImpl implements GameService {
     }
 
     /**
+     * Charges interest on a negative cash balance, the same way a real overdraft does. Runs after
+     * {@link #settleDividends} and {@link #settleTax} on purpose: dividends get a chance to pull
+     * cash back to non-negative, and tax is the realistic way cash goes negative in the first place
+     * (it's the one deduction not gated behind an insufficient-funds check), before interest is
+     * ever charged on the result. Settled every {@link #evaluate} call rather than on a fixed
+     * interval like tax — "is cash currently negative" is a continuously-true-or-false condition,
+     * not a discrete banked amount that only changes at intervals.
+     */
+    void settleOverdraftInterest(GameSession session) {
+        Instant now = Instant.now();
+        if (session.getCash().signum() >= 0) {
+            // Not overdrawn (any more) — clear the clock so a session that dips negative, recovers,
+            // and later dips negative again starts a fresh accrual window rather than resuming one
+            // that spans an interval where it was never actually overdrawn.
+            session.setOverdraftLastAccrualAt(null);
+            return;
+        }
+        if (session.getOverdraftLastAccrualAt() == null) {
+            // Cash just went negative this call — the clock starts now, not retroactively, the same
+            // way settleTax's null-clock branch avoids backdating a bill for time before the field existed.
+            session.setOverdraftLastAccrualAt(now);
+            return;
+        }
+        double compressedDaysElapsed = Duration.between(session.getOverdraftLastAccrualAt(), now).toMillis() / 60_000.0
+                * OVERDRAFT_INTEREST_DAYS_PER_MINUTE;
+        if (compressedDaysElapsed <= 0) {
+            return;
+        }
+        // Same day-based formula as GameLoan's pendingInterest, each elapsed minute standing in for
+        // OVERDRAFT_INTEREST_DAYS_PER_MINUTE compressed "days" — see that field's javadoc for why.
+        BigDecimal interest = session.getCash().abs()
+                .multiply(OVERDRAFT_RATE_ANNUAL_PERCENT)
+                .multiply(BigDecimal.valueOf(compressedDaysElapsed))
+                .divide(BigDecimal.valueOf(100L * DAYS_PER_YEAR), 8, RoundingMode.HALF_UP);
+        session.setCash(session.getCash().subtract(interest));
+        BigDecimal existingOverdraftInterestPaid = session.getTotalOverdraftInterestPaid() != null ? session.getTotalOverdraftInterestPaid() : BigDecimal.ZERO;
+        session.setTotalOverdraftInterestPaid(existingOverdraftInterestPaid.add(interest));
+        session.setOverdraftLastAccrualAt(now);
+    }
+
+    /**
      * Picks (and persists) a fresh advisor tip once {@code ADVISOR_TIP_INTERVAL_SECONDS} has
      * elapsed since the last one — unlike the savings/loan interest "live, recompute on every
      * read" pattern, a tip has to be a stable, named call the player can actually decide whether
@@ -958,12 +1090,35 @@ public class GameServiceImpl implements GameService {
         if (symbols.isEmpty()) {
             return;
         }
+        Set<String> heldSymbols = positionRepository.findBySessionId(session.getSessionId()).stream()
+                .filter(p -> p.getQuantity().signum() > 0)
+                .map(GamePosition::getSymbol)
+                .collect(Collectors.toSet());
+
         ThreadLocalRandom random = ThreadLocalRandom.current();
-        String symbol = symbols.get(random.nextInt(symbols.size()));
-        boolean regimeUp = marketService.currentTrendUp(session.getDifficulty(), symbol).orElse(random.nextBoolean());
-        boolean tipMatchesRegime = random.nextDouble() < ADVISOR_TIP_ACCURACY;
-        boolean tipUp = tipMatchesRegime ? regimeUp : !regimeUp;
-        OrderSide tipSide = tipUp ? OrderSide.BUY : OrderSide.SELL;
+        // A SELL tip only makes sense on something actually held — telling a player to sell a
+        // symbol they don't own isn't actionable advice, it's just confusing (found live: "SELL
+        // NFLX" with no NFLX position). BUY is always sensible regardless of holdings, so only SELL
+        // needs this guard. Retried against a fresh random symbol rather than just flipping the
+        // side on the spot, so the roll's accuracy semantics stay intact — flipping SELL straight to
+        // BUY would turn some genuinely accurate "this is heading down" calls into bad buy advice.
+        // A handful of attempts is enough that the final fallback (force BUY on whatever was last
+        // tried) essentially never triggers in practice; it's still always sensible advice even
+        // on the rare occasion it does.
+        String symbol = null;
+        OrderSide tipSide = null;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            String candidate = symbols.get(random.nextInt(symbols.size()));
+            boolean regimeUp = marketService.currentTrendUp(session.getDifficulty(), candidate).orElse(random.nextBoolean());
+            boolean tipMatchesRegime = random.nextDouble() < ADVISOR_TIP_ACCURACY;
+            boolean tipUp = tipMatchesRegime ? regimeUp : !regimeUp;
+            symbol = candidate;
+            tipSide = tipUp ? OrderSide.BUY : OrderSide.SELL;
+            if (tipSide == OrderSide.BUY || heldSymbols.contains(candidate)) {
+                break;
+            }
+            tipSide = OrderSide.BUY;
+        }
 
         session.setAdvisorTipSymbol(symbol);
         session.setAdvisorTipSide(tipSide);
@@ -1054,6 +1209,7 @@ public class GameServiceImpl implements GameService {
                 session.isAdvisorHired(), session.getAdvisorTipSymbol(), session.getAdvisorTipSide(), advisorNextTipAt,
                 session.getTotalDividendsPaid() != null ? session.getTotalDividendsPaid() : BigDecimal.ZERO,
                 session.getTotalTaxPaid() != null ? session.getTotalTaxPaid() : BigDecimal.ZERO,
+                session.getTotalOverdraftInterestPaid() != null ? session.getTotalOverdraftInterestPaid() : BigDecimal.ZERO,
                 positions, loans);
     }
 
